@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-pip install flask authlib flask-wtf httpx google-genai
+pip install flask authlib flask-wtf httpx
 """
 
 import json

@@ -49,7 +49,7 @@ The UI is in Serbian.
 ## Setup
 
 ```sh
-pip install flask authlib flask-wtf httpx google-genai
+pip install flask authlib flask-wtf httpx
 cp appsettings.py.example appsettings.py   # then fill it in
 ```
 

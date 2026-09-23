@@ -1,9 +1,9 @@
 import datetime
+import json
 import logging
 import re
 
-from google import genai
-from google.genai import types
+import httpx
 
 import appsettings
 import database
@@ -20,26 +20,32 @@ OUTAGE_SCHEMA = {
     "required": ["outage", "details"],
 }
 
-client = genai.Client(api_key=appsettings.GEMINI_API_KEY)
+API_URL = ("https://generativelanguage.googleapis.com/v1beta/models/"
+           "gemini-3.6-flash:generateContent")
 
 
 def ask(prompt: str, schema: dict | None = None):
-    config = types.GenerateContentConfig(
-        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-    )
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
     if schema:
-        config.response_mime_type = "application/json"
-        config.response_schema = schema
-    response = client.models.generate_content(
-        model="gemini-3.6-flash",
-        contents=prompt,
-        config=config,
-    )
+        payload["generationConfig"] = {
+            "responseMimeType": "application/json",
+            "responseSchema": schema,
+        }
+
+    response = httpx.post(API_URL, json=payload, timeout=60.0,
+                          headers={"x-goog-api-key": appsettings.GEMINI_API_KEY})
+    response.raise_for_status()
+    text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+
     if not schema:
-        return response.text
-    if not isinstance(response.parsed, dict):
-        raise ValueError(f"Neocekivan odgovor modela: {response.text!r}")
-    return response.parsed
+        return text
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        parsed = None
+    if not isinstance(parsed, dict):
+        raise ValueError(f"Neocekivan odgovor modela: {text!r}")
+    return parsed
 
 
 def extract_links(html: str) -> str:
