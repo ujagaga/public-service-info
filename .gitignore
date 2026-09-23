@@ -1,2 +1,5 @@
 appsettings.py
+client_secret.json
+database.db
 __pycache__
+.venv

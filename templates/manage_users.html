@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/manage_users.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/manage_devices.css') }}">
+
+    <div class="user_picture_wrapper">
+      <img src="{{ user.picture }}" alt="Your Picture" class="user_picture">
+    </div>
+
+    <nav class="admin_nav">
+      <a href="/" class="nav_btn"><i class="fa-solid fa-home"></i></a>
+    </nav>
+
+    <h1>Pending Users</h1>
+
+    {% if unauthorized_users %}
+      {% for u in unauthorized_users %}
+      <div class="device_row">
+        <div class="device_card device_config">
+          <div class="user_info_row">
+            <img src="{{ u.picture }}" alt="User picture" class="user_picture">
+            <div class="user_text_info">
+              <p><strong>Email:</strong> {{ u.email }}</p>
+              <p><strong>Adresa:</strong> {{ u.address }}</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="update_buttons">
+          <form method="post" action="{{ url_for('manage_users_post') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="email" value="{{ u.email }}">
+            <input type="hidden" name="action" value="authorize">
+            <button type="submit" title="Approve" class="save_btn"><i class="fa-solid fa-thumbs-up"></i></button>
+          </form>
+
+          <form method="post" action="{{ url_for('manage_users_post') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="email" value="{{ u.email }}">
+            <input type="hidden" name="action" value="remove">
+            <button type="submit" title="Remove" class="delete_btn" style="margin-top:2em;"><i class="fa-solid fa-trash-can"></i></button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <p>No pending users.</p>
+    {% endif %}
+
+    <h1>Authorized Users</h1>
+
+    {% if authorized_users %}
+      {% for a in authorized_users %}
+      <div class="device_row">
+        <div class="device_card device_config">
+          <div class="user_info_row">
+            <img src="{{ a.picture }}" alt="User picture" class="user_picture">
+            <div class="user_text_info">
+              <p><strong>Email:</strong> {{ a.email }}</p>
+
+              <p><strong>Adresa:</strong> {{ a.address }}
+                <a href="#" class="edit-address-link" data-email="{{ a.email }}" data-address="{{ a.address }}">
+                  <i class="fa-solid fa-pen"></i>
+                </a>
+              </p>
+
+              <p><strong>Role:</strong> {% if a.authorized > 1 %}Admin{% else %}User{% endif %}</p>
+              <p><strong>Last seen:</strong> {{ a.last_seen }}</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="update_buttons">
+          {% if a.authorized == 1 %}
+            <form method="post" action="{{ url_for('manage_users_post') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="email" value="{{ a.email }}">
+              <input type="hidden" name="action" value="make_admin">
+              <button type="submit" title="Upgrade to Admin" class="save_btn">
+                <i class="fa-solid fa-screwdriver-wrench"></i>
+              </button>
+            </form>
+          {% endif %}
+          {% if a.email != user.email %}
+            <form method="post" action="{{ url_for('manage_users_post') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="email" value="{{ a.email }}">
+              <input type="hidden" name="action" value="remove">
+              <button type="submit" title="Remove" class="delete_btn" style="margin-top:2em;"><i class="fa-solid fa-trash-can"></i></button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <p>No authorized users.</p>
+    {% endif %}
+
+
+  <!-- Image Modal -->
+  <div id="imgModal">
+    <span class="close">&times;</span>
+    <img id="modalImage" src="" alt="Zoomed image">
+  </div>
+
+  <div id="addressModal" class="modal" style="display:none;">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('manage_users_post') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="email" id="modal-email">
+        <input type="hidden" name="action" value="update_address">
+        <label for="modal-address">Nova adresa:</label>
+        <input type="text" name="address" id="modal-address" required>
+        <button type="submit" class="save_btn device_action_btn">Save</button>
+      </form>
+    </div>
+  </div>
+
+<script src="{{ url_for('static', filename='js/manage_users.js') }}"></script>
+
+{% endblock %}

@@ -1,2 +1,17 @@
-GEMINI_API_KEY="The key you generate from ai studio"
-STREET_ADDRESS="Your postal address"
+APP_TITLE = "Public Service Info"
+ADMIN_EMAIL = "admin@email.com"                 # Seeded as the first admin account
+
+GEMINI_API_KEY = "The key you generate from ai studio"
+POWER_CHECK_URL = "https://elektrodistribucija.rs/planirana-iskljucenja-srbija/NoviSad_Dan_1_Iskljucenja.htm"
+WATER_CHECK_URL = "https://www.vikns.rs/category/najava-radova-sr/"
+
+SMTP_SERVER = "your smtp server without ssl"
+SMTP_PORT = 587
+SMTP_USER = "account_mail@smtp.server"
+SMTP_PASS = "user_account_password"
+
+APP_SECRET_KEY = "SomeSuperSecretKey123"        # Used for flask secure communication
+TRIGGER_TOKEN = "SomeLongRandomString456"       # Required as ?token= on /run_check
+MAX_COOKIE_AGE = 60 * 60 * 24 * 30              # 30 days until you are asked to login again
+
+DB_NAME = "database.db"

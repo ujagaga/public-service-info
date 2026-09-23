@@ -1,0 +1,217 @@
+:root {
+  --accent-color: #1fa3ec;
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.page-wrapper {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh; /* full viewport height */
+}
+
+a, a h1 {
+  text-decoration: none !important;
+}
+
+.container {
+  flex: 1 1 auto;       /* grow and shrink as needed */
+  overflow-y: auto;     /* enable vertical scroll */
+  position: relative;
+  padding: 0 0 20px 0;
+  max-width: 800px;
+  min-width: 200px;
+  width: 90%;
+  margin: 0 auto;
+  font-family: sans-serif;
+}
+
+h1 {
+  margin-bottom: 1rem;
+  text-align: center;
+}
+
+.flash_message {
+  min-height: 1.5rem;
+  margin-top: 80px;
+}
+
+.red_notification {
+  color: red;
+  margin: 0;
+}
+
+/* Navigation */
+.nav_btn {
+  color: white;
+  display: inline-block;
+  text-decoration: none;
+  float: left;
+  margin: 5px;
+  padding: 8px 12px;
+  background: #333;
+  border-radius: 4px;
+}
+
+.nav_btn:hover {
+  background: #555;
+}
+
+.admin_nav {
+  background-color: var(--accent-color);
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding-right: 60px;
+}
+
+/* Buttons */
+.big_btn {
+  flex: 1 1 auto;
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  margin: 0.5%;
+  max-width: 150px;
+  min-width: 60px;
+  font-size: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--accent-color);
+  color: #fff;
+  border: none;
+}
+
+.big_btn.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+.big_btn.active {
+  background-color: #00c853;
+  transition: background-color 0.3s ease;
+}
+
+.save_btn {
+    background-color: #007bff;
+}
+.delete_btn{
+    background-color: red;
+}
+
+.save_btn, .delete_btn{
+  color: #fff;
+  border: none;
+  padding: 0.6em 1em;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: center;
+  font-size: 1em;
+  transition: background 0.2s ease;
+  opacity: 0.8;
+}
+
+.save_btn:hover, .delete_btn:hover {
+  opacity: 1;
+}
+
+
+/* Footer */
+.footer {
+  flex-shrink: 0;       /* never shrink */
+  text-align: center;
+  padding: 1rem 0;
+  font-size: 0.9rem;
+  color: #333;
+  background-color: #f2f2f2; /* optional: makes it stand out */
+}
+
+/* Optional: footer link styling */
+.footer a {
+  color: var(--accent-color, #1fa3ec);
+  text-decoration: none;
+}
+
+.footer a:hover {
+  text-decoration: underline;
+}
+
+/* User info */
+.user_picture_wrapper {
+  position: absolute;
+  top: 20px;
+  right: 5px;
+}
+
+.user_picture {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--accent-color);
+}
+
+/* Modal */
+.modal.hidden { display: none; }
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+}
+
+.modal-content {
+  background: white;
+  padding: 1.15rem;
+  border-radius: 10px;
+  width: 90%;
+  max-width: 640px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+  position: relative;
+}
+
+.modal-close {
+  position: absolute;
+  right: 0.5rem;
+  top: 0.3rem;
+  border: none;
+  background: transparent;
+  font-size: 1.6rem;
+  cursor: pointer;
+}
+
+/* Responsive */
+@media only screen and (max-width: 767px) {
+  .container { min-width: 100vw; }
+}
+
+@media (orientation: landscape) {
+  .container { min-width: 400px; }
+}
+/* Align buttons vertically */
+.update_buttons {
+  display: flex;
+  flex-direction: column;   /* stack buttons vertically */
+  align-items: stretch;     /* make buttons fill the width of container */
+  gap: 0.5em;               /* spacing between buttons */
+}
+
+/* Make all buttons inside update_buttons fill full width */
+.update_buttons .save_btn {
+  width: 100%;
+  text-align: center;
+}
+
+/* Ensure spacing from the top for the first button is consistent */
+.update_buttons .save_btn:first-child {
+  margin-top: 0;
+}

@@ -1,0 +1,92 @@
+.user_info_row {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: nowrap;
+}
+
+.user_info_row .user_picture {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.user_text_info {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.user_text_info p {
+  margin: 2px 0;
+  line-height: 1.1;
+  font-size: 0.9em;
+}
+
+.manage_users_btn {
+  position: relative;
+  display: inline-block;
+  padding-right: 20px;
+}
+
+.red_dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 10px;
+  height: 10px;
+  background-color: red;
+  border-radius: 50%;
+  border: 1.5px solid white;
+  pointer-events: none;
+}
+
+.edit-apartment-link {
+  padding-left: 1rem;
+}
+
+/* Image zoom modal (used for user pictures) */
+#imgModal {
+  display: none;
+  position: fixed;
+  z-index: 999;
+  left: 0;
+  top: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(0,0,0,0.9);
+  align-items: center;
+  justify-content: center;
+}
+
+#imgModal img {
+  max-width: 95vw;
+  max-height: 95vh;
+  width: auto;
+  height: auto;
+  animation: zoomIn 0.3s;
+  box-shadow: 0 0 20px rgba(255,255,255,0.3);
+  border-radius: 8px;
+}
+
+#imgModal .close {
+  position: absolute;
+  top: 20px;
+  right: 40px;
+  color: white;
+  font-size: 40px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+@keyframes zoomIn {
+  from { transform: scale(0.7); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+.update_buttons .save_btn.remove_btn {
+    background-color: #b33;
+}

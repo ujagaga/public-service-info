@@ -1,0 +1,35 @@
+.signin_box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    text-align: center;
+}
+
+.login_btn {
+    text-decoration: none;
+    color: #353136;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    transition: background 0.2s ease;
+    font-size: 3em;
+    opacity: 0.8;
+}
+
+.login_btn i{
+    background-color: var(--accent-color);
+    padding: 0.2em 0.1em;
+    border-radius: 8px;
+    color: #fff;
+}
+
+.login_btn:hover {
+    opacity: 1;
+}
+
+.red_notification {
+    color: red;
+    margin-top: 1rem;
+}

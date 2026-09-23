@@ -1,0 +1,81 @@
+/* Base container styling */
+.container {
+    max-width: 600px;
+    width: 90%;
+    margin: 2rem auto;
+    padding: 2rem;
+    background-color: #f9f9f9;
+    border-radius: 10px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    font-family: sans-serif;
+}
+
+/* Form input fields and textarea */
+.form_input {
+    width: 100%;
+    padding: 0.6rem 0.8rem;
+    font-size: 1rem;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    box-sizing: border-box;
+    margin-top: 0.25rem;
+}
+
+.form_input:focus {
+    border-color: var(--accent-color);
+    outline: none;
+    box-shadow: 0 0 3px var(--accent-color);
+}
+
+/* Labels */
+label {
+    font-weight: bold;
+    color: #1fa3ec;
+}
+
+/* Row spacing */
+.row {
+    margin-bottom: 1rem;
+}
+
+/* Single row center alignment for submit button */
+.row.single {
+    display: flex;
+    justify-content: center;
+}
+
+/* Buttons */
+.nav_btn {
+    background-color: var(--accent-color);
+    color: #fff;
+    border: none;
+    padding: 0.6em 1.2em;
+    border-radius: 6px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background 0.2s ease;
+    text-align: center;
+    display: inline-block;
+}
+
+.nav_btn:hover {
+    background-color: #0070c0;
+}
+
+/* Flash messages */
+.flash_message {
+    min-height: 1.5rem;
+    margin-bottom: 1rem;
+    color: red;
+}
+
+/* Responsive adjustments */
+@media (max-width: 480px) {
+    .container {
+        padding: 1rem;
+        width: 95%;
+    }
+    .nav_btn {
+        width: 100%;
+    }
+}

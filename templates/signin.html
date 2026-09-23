@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/signin.css') }}">
+
+<div class="signin_box">
+    <a href="/authorize" class="login_btn">
+        <h1>Lo<i class="fab fa-google"></i>in</h1>
+    </a>
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+            <p class="red_notification">{{ messages[0] }}</p>
+        {% else %}
+            <p>&nbsp;</p>
+        {% endif %}
+    {% endwith %}
+</div>
+{% endblock %}

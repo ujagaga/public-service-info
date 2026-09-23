@@ -1,0 +1,51 @@
+/* Container for device buttons - keep horizontal layout */
+.row {
+  display: flex;
+  justify-content: center; /* center buttons horizontally */
+  gap: 0.5rem;             /* spacing between buttons */
+  flex-wrap: nowrap;        /* prevent wrapping onto multiple lines */
+  margin-bottom: 1rem;     /* space under the row */
+}
+
+/* For single button devices, center it */
+.row.single {
+  justify-content: center;
+}
+
+/* Big buttons styling */
+.big_btn {
+  flex: 1 1 auto;            /* buttons grow/shrink equally */
+  max-width: 150px;
+  min-width: 60px;
+  aspect-ratio: 1/1;         /* square buttons */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  border-radius: 50%;
+  border: none;
+  color: #fff;
+  background-color: var(--accent-color);
+  cursor: pointer;
+  text-decoration: none;
+  transition: background-color 0.3s ease;
+}
+
+.big_btn i {
+  pointer-events: none; /* ensure clicks target the button, not icon */
+}
+
+/* Active state (temporary flash) */
+.big_btn.active {
+  background-color: #00c853;
+}
+
+/* If you want device sections stacked vertically */
+h1 {
+  text-align: center;
+  margin-bottom: 0.5rem;
+}
+
+.progress-bar-container {
+  margin-bottom: 1.5rem;
+}

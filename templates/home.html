@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/complete_registration.css') }}">
+
+  <div class="user_picture_wrapper">
+    <img src="{{ user.picture }}" alt="User Picture" class="user_picture">
+  </div>
+
+  <nav class="admin_nav">
+    {% if admin %}
+    <a href="{{ url_for('manage_users') }}" class="nav_btn manage_users_btn" title="Korisnici">
+      <i class="fa-solid fa-user-tie"></i>
+      {% if unauthorized_users|length > 0 %}
+      <span class="red_dot"></span>
+      {% endif %}
+    </a>
+    {% endif %}
+    <a href="{{ url_for('logout') }}" class="nav_btn" title="Odjava"><i class="fa-solid fa-right-from-bracket"></i></a>
+  </nav>
+
+  <h1>Moja adresa</h1>
+
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}<p class="red_notification">{{ messages[0] }}</p>{% endif %}
+  {% endwith %}
+
+  <p>Obavestenja o iskljucenjima struje i vode saljemo na {{ user.email }}.</p>
+
+  <form method="post" action="{{ url_for('index') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="row">
+      <input type="text" name="address" id="address" value="{{ user.address or '' }}" required class="form_input">
+    </div>
+    <div class="row single" style="margin-top: 1.5rem;">
+      <button type="submit" class="nav_btn">Sacuvaj</button>
+    </div>
+  </form>
+{% endblock %}

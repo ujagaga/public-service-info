@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/complete_registration.css') }}">
+
+    <h2>Registracija</h2>
+    <p>Niste registrovani korisnik. Unesite adresu za koju zelite obavestenja o iskljucenjima.</p>
+
+    <form method="post" action="{{ url_for('complete_registration') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="email" value="{{ email }}">
+
+        <div class="row">
+            <label for="address">Adresa:</label>
+        </div>
+        <div class="row">
+            <input type="text" name="address" id="address" required class="form_input">
+        </div>
+
+        <div class="row single" style="margin-top: 1.5rem;">
+            <button type="submit" class="nav_btn">Posalji</button>
+        </div>
+    </form>
+{% endblock %}
