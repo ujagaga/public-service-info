@@ -132,7 +132,13 @@ def update_user(connection, email: str, token: str = None, authorized: int = Non
     connection.commit()
 
 
-if __name__ == "__main__":
+def setup_initial_db():
     connection = open_db()
-    init_database(connection)
-    close_db(connection)
+    try:
+        init_database(connection)
+    finally:
+        close_db(connection)
+
+
+if __name__ == "__main__":
+    setup_initial_db()

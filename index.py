@@ -22,6 +22,9 @@ import helper
 
 sys.path.insert(0, os.path.dirname(__file__))
 
+# Runs on every startup path, including CGI where index.py is imported, not executed.
+database.setup_initial_db()
+
 application = Flask(__name__, static_url_path='/static', static_folder='static')
 application.config['SECRET_KEY'] = appsettings.APP_SECRET_KEY
 application.config['SESSION_COOKIE_NAME'] = 'public_service_info'
@@ -36,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 csrf = CSRFProtect(application)
 
-CLIENT_SECRETS_FILE = "client_secret.json"
+CLIENT_SECRETS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "client_secret.json")
 
 if application.debug:
     google = None
@@ -331,3 +334,6 @@ def run_check():
         f"Obavesteno: {', '.join(result['notified']) or '-'}\n"
         f"Greske: {'; '.join(result['errors']) or '-'}\n"
     ), (500 if result["errors"] else 200), {"Content-Type": "text/plain; charset=utf-8"}
+
+if __name__ == "__main__":
+    application.run(debug=False, host="0.0.0.0", port=5000)
