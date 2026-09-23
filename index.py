@@ -312,10 +312,10 @@ def run_check():
     if request.args.get('token') != appsettings.TRIGGER_TOKEN:
         return "Forbidden", 403
 
-    # Imported here so the Gemini client is only created when a check actually runs.
-    import checker
-
     try:
+        # Imported here so the Gemini client is only created when a check actually runs.
+        import checker
+
         result = checker.run_checks()
     except Exception as error:
         logger.exception(f"Check run failed: {error}")
@@ -333,7 +333,7 @@ def run_check():
         f"Provereno korisnika: {result['checked']}\n"
         f"Obavesteno: {', '.join(result['notified']) or '-'}\n"
         f"Greske: {'; '.join(result['errors']) or '-'}\n"
-    ), (500 if result["errors"] else 200), {"Content-Type": "text/plain; charset=utf-8"}
+    ), 200, {"Content-Type": "text/plain; charset=utf-8"}
 
 if __name__ == "__main__":
     application.run(debug=False, host="0.0.0.0", port=5000)
