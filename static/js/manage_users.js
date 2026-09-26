@@ -1,47 +1,24 @@
-document.addEventListener('DOMContentLoaded', function () {
-
-  // ---------- Image Modal ----------
-  const imgModal = document.getElementById('imgModal');
-  const modalImage = document.getElementById('modalImage');
-  const imgClose = imgModal.querySelector('.close');
-
-  document.querySelectorAll('.user_picture').forEach(img => {
-    img.addEventListener('click', function() {
-      modalImage.src = this.src;
-      imgModal.style.display = 'flex';
+document.addEventListener('DOMContentLoaded', () => {
+  const dialog = document.getElementById('addressModal');
+  document.querySelectorAll('.edit-address-link').forEach(button => {
+    button.addEventListener('click', () => {
+      document.getElementById('modal-email').value = button.dataset.email;
+      document.getElementById('modal-address').value = button.dataset.address;
+      document.getElementById('modal-address').dispatchEvent(new Event('input', { bubbles: true }));
+      document.getElementById('editing-user').textContent = button.dataset.email;
+      dialog.showModal();
+      document.getElementById('modal-address').focus();
     });
   });
-
-  imgClose.addEventListener('click', () => {
-    imgModal.style.display = 'none';
+  dialog.querySelectorAll('.close-dialog').forEach(button => {
+    button.addEventListener('click', () => dialog.close());
   });
-
-  window.addEventListener('click', e => {
-    if (e.target === imgModal) {
-      imgModal.style.display = 'none';
-    }
+  dialog.addEventListener('close', () => {
+    document.getElementById('modal-address').dispatchEvent(new Event('input', { bubbles: true }));
   });
-
-  // ---------- Address Modal ----------
-  const addressModal = document.getElementById('addressModal');
-  const modalEmailInput = document.getElementById('modal-email');
-  const modalAddressInput = document.getElementById('modal-address');
-
-  document.querySelectorAll('.edit-address-link').forEach(link => {
-    link.addEventListener('click', function(e) {
-      e.preventDefault();
-      const email = this.dataset.email;
-      const address = this.dataset.address;
-      modalEmailInput.value = email;
-      modalAddressInput.value = address;
-      addressModal.style.display = 'flex';
-    });
+  dialog.addEventListener('click', event => {
+    const bounds = dialog.getBoundingClientRect();
+    if (event.target === dialog && (event.clientX < bounds.left || event.clientX > bounds.right ||
+        event.clientY < bounds.top || event.clientY > bounds.bottom)) dialog.close();
   });
-
-  window.addEventListener('click', e => {
-    if (e.target === addressModal) {
-      addressModal.style.display = 'none';
-    }
-  });
-
 });

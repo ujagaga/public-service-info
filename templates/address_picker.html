@@ -1,0 +1,32 @@
+{% macro address_picker(value='', field_id='address') %}
+<div class="address-picker" data-address-picker>
+  <label for="{{ field_id }}">Ulica i kućni broj</label>
+  <input type="text" name="address" id="{{ field_id }}" value="{{ value or '' }}"
+         data-address-input required autocomplete="street-address"
+         placeholder="npr. Bulevar oslobođenja 12"
+         aria-describedby="{{ field_id }}-hint">
+  <div class="address-city">
+    <label for="{{ field_id }}-city">Grad</label>
+    <select id="{{ field_id }}-city" name="city" data-address-city autocomplete="address-level2">
+      <option value="Novi Sad" selected>Novi Sad</option>
+    </select>
+  </div>
+  <p class="hint" id="{{ field_id }}-hint">Unesite ulicu i kućni broj. Izabrani grad se automatski dodaje pri prikazu na mapi.</p>
+  <div class="address-map-actions">
+    <button type="button" class="button secondary" data-map-search hidden>
+      <i class="fa-solid fa-map-location-dot" aria-hidden="true"></i> Prikaži na mapi
+    </button>
+
+  </div>
+  <p class="address-map-status" data-map-status role="status" aria-live="polite"></p>
+  <noscript><p class="hint">Za pregled mape uključite JavaScript. Adresu možete sačuvati i bez mape.</p></noscript>
+  <div data-map-results hidden>
+    <iframe class="address-map" data-map-frame title="Google mapa unete adrese"
+            loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
+    <div class="address-map-caption">
+      <strong data-map-address></strong>
+      <p>Proverite da li prikazana lokacija odgovara vašoj adresi. Ako nije tačna, izmenite adresu iznad i ponovo prikažite mapu. Čuva se adresa koju unesete u obrazac.</p>
+    </div>
+  </div>
+</div>
+{% endmacro %}

@@ -1,122 +1,18 @@
 {% extends "base.html" %}
-
+{% from "address_picker.html" import address_picker with context %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/manage_users.css') }}">{% endblock %}
+{% macro action_form(person, action, label, icon, destructive=false) %}
+<form method="post" action="{{ url_for('manage_users_post') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="email" value="{{ person.email }}"><input type="hidden" name="action" value="{{ action }}"><button type="submit" class="{{ 'delete_btn' if destructive else 'save_btn' }}" aria-label="{{ label }}: {{ person.email }}"><i class="fa-solid {{ icon }}" aria-hidden="true"></i> {{ label }}</button></form>
+{% endmacro %}
 {% block content %}
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/manage_users.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/manage_devices.css') }}">
-
-    <div class="user_picture_wrapper">
-      <img src="{{ user.picture }}" alt="Your Picture" class="user_picture">
-    </div>
-
-    <nav class="admin_nav">
-      <a href="/" class="nav_btn"><i class="fa-solid fa-home"></i></a>
-    </nav>
-
-    <h1>Pending Users</h1>
-
-    {% if unauthorized_users %}
-      {% for u in unauthorized_users %}
-      <div class="device_row">
-        <div class="device_card device_config">
-          <div class="user_info_row">
-            <img src="{{ u.picture }}" alt="User picture" class="user_picture">
-            <div class="user_text_info">
-              <p><strong>Email:</strong> {{ u.email }}</p>
-              <p><strong>Adresa:</strong> {{ u.address }}</p>
-            </div>
-          </div>
-        </div>
-
-        <div class="update_buttons">
-          <form method="post" action="{{ url_for('manage_users_post') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <input type="hidden" name="email" value="{{ u.email }}">
-            <input type="hidden" name="action" value="authorize">
-            <button type="submit" title="Approve" class="save_btn"><i class="fa-solid fa-thumbs-up"></i></button>
-          </form>
-
-          <form method="post" action="{{ url_for('manage_users_post') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <input type="hidden" name="email" value="{{ u.email }}">
-            <input type="hidden" name="action" value="remove">
-            <button type="submit" title="Remove" class="delete_btn" style="margin-top:2em;"><i class="fa-solid fa-trash-can"></i></button>
-          </form>
-        </div>
-      </div>
-      {% endfor %}
-    {% else %}
-      <p>No pending users.</p>
-    {% endif %}
-
-    <h1>Authorized Users</h1>
-
-    {% if authorized_users %}
-      {% for a in authorized_users %}
-      <div class="device_row">
-        <div class="device_card device_config">
-          <div class="user_info_row">
-            <img src="{{ a.picture }}" alt="User picture" class="user_picture">
-            <div class="user_text_info">
-              <p><strong>Email:</strong> {{ a.email }}</p>
-
-              <p><strong>Adresa:</strong> {{ a.address }}
-                <a href="#" class="edit-address-link" data-email="{{ a.email }}" data-address="{{ a.address }}">
-                  <i class="fa-solid fa-pen"></i>
-                </a>
-              </p>
-
-              <p><strong>Role:</strong> {% if a.authorized > 1 %}Admin{% else %}User{% endif %}</p>
-              <p><strong>Last seen:</strong> {{ a.last_seen }}</p>
-            </div>
-          </div>
-        </div>
-
-        <div class="update_buttons">
-          {% if a.authorized == 1 %}
-            <form method="post" action="{{ url_for('manage_users_post') }}">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <input type="hidden" name="email" value="{{ a.email }}">
-              <input type="hidden" name="action" value="make_admin">
-              <button type="submit" title="Upgrade to Admin" class="save_btn">
-                <i class="fa-solid fa-screwdriver-wrench"></i>
-              </button>
-            </form>
-          {% endif %}
-          {% if a.email != user.email %}
-            <form method="post" action="{{ url_for('manage_users_post') }}">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <input type="hidden" name="email" value="{{ a.email }}">
-              <input type="hidden" name="action" value="remove">
-              <button type="submit" title="Remove" class="delete_btn" style="margin-top:2em;"><i class="fa-solid fa-trash-can"></i></button>
-            </form>
-          {% endif %}
-        </div>
-      </div>
-      {% endfor %}
-    {% else %}
-      <p>No authorized users.</p>
-    {% endif %}
-
-
-  <!-- Image Modal -->
-  <div id="imgModal">
-    <span class="close">&times;</span>
-    <img id="modalImage" src="" alt="Zoomed image">
-  </div>
-
-  <div id="addressModal" class="modal" style="display:none;">
-    <div class="modal-content">
-      <form method="post" action="{{ url_for('manage_users_post') }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="email" id="modal-email">
-        <input type="hidden" name="action" value="update_address">
-        <label for="modal-address">Nova adresa:</label>
-        <input type="text" name="address" id="modal-address" required>
-        <button type="submit" class="save_btn device_action_btn">Save</button>
-      </form>
-    </div>
-  </div>
-
-<script src="{{ url_for('static', filename='js/manage_users.js') }}"></script>
-
+<div class="eyebrow">Administracija</div><div class="page-heading"><div><h1>Naše komšije.</h1><p>Odobrite prijave i upravljajte adresama za obaveštenja.</p></div><span class="badge">{{ authorized_users|length }} odobrenih</span></div>
+<section aria-labelledby="pending-title"><h2 class="list-heading" id="pending-title">Čekaju odobrenje <span class="badge pending">{{ unauthorized_users|length }}</span></h2>
+{% for person in unauthorized_users %}<article class="user-card"><div class="user-info"><img src="{{ person.picture }}" alt="" class="user_picture"><div class="user-details"><h3>{{ person.email }}</h3><p><i class="fa-solid fa-location-dot" aria-hidden="true"></i> {{ person.address or 'Adresa nije uneta' }}</p><span class="badge pending">Na čekanju</span></div></div><div class="user-actions">{{ action_form(person, 'authorize', 'Odobri', 'fa-check') }}{{ action_form(person, 'remove', 'Ukloni', 'fa-trash-can', true) }}</div></article>
+{% else %}<div class="empty-state"><i class="fa-solid fa-check" aria-hidden="true"></i> Sve prijave su obrađene. Nema korisnika koji čekaju odobrenje.</div>{% endfor %}</section>
+<section aria-labelledby="approved-title"><h2 class="list-heading" id="approved-title">Odobreni korisnici <span class="badge">{{ authorized_users|length }}</span></h2>
+{% for person in authorized_users %}<article class="user-card"><div class="user-info"><img src="{{ person.picture }}" alt="" class="user_picture"><div class="user-details"><h3>{{ person.email }}{% if person.email == user.email %} <span class="self-label">(vi)</span>{% endif %}</h3><p>{{ person.address or 'Adresa nije uneta' }} <button type="button" class="edit-address-link" data-email="{{ person.email }}" data-address="{{ person.address or '' }}" aria-label="Izmeni adresu za {{ person.email }}"><i class="fa-solid fa-pen" aria-hidden="true"></i> Izmeni</button></p><div class="user-meta"><span class="badge">{{ 'Administrator' if person.authorized > 1 else 'Korisnik' }}</span><span>Poslednja aktivnost: {{ person.last_seen or '—' }}</span></div></div></div><div class="user-actions">{% if person.authorized == 1 %}{{ action_form(person, 'make_admin', 'Postavi za admina', 'fa-user-shield') }}{% endif %}{% if person.email != user.email %}{{ action_form(person, 'remove', 'Ukloni', 'fa-trash-can', true) }}{% endif %}</div></article>
+{% else %}<div class="empty-state">Još nema odobrenih korisnika.</div>{% endfor %}</section>
+<dialog id="addressModal" aria-labelledby="dialog-title"><div class="dialog-heading"><h2 id="dialog-title">Izmena adrese</h2><button type="button" class="close-dialog" aria-label="Zatvori">×</button></div><p id="editing-user" class="wrap"></p><form method="post" action="{{ url_for('manage_users_post') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="email" id="modal-email"><input type="hidden" name="action" value="update_address">{{ address_picker(field_id='modal-address') }}
+<div class="dialog-actions"><button type="button" class="button secondary close-dialog">Otkaži</button><button type="submit" class="button">Sačuvaj adresu</button></div></form></dialog>
 {% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/manage_users.js') }}"></script>{% endblock %}

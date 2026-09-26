@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-pip install flask authlib flask-wtf httpx
+pip install flask authlib flask-wtf httpx requests
 """
 
 import json
@@ -13,7 +13,7 @@ import time
 
 from authlib.integrations.flask_client import OAuth
 from flask import (Flask, g, render_template, request, flash, redirect, make_response,
-                   url_for as flask_url_for)
+                   session, url_for as flask_url_for)
 from flask_wtf import CSRFProtect
 
 import appsettings
@@ -38,6 +38,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 csrf = CSRFProtect(application)
+
 
 CLIENT_SECRETS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "client_secret.json")
 
@@ -79,7 +80,29 @@ def current_user():
     token = request.cookies.get('token')
     if not token:
         return None
-    return database.get_user(connection=g.db, token=token)
+    user = database.get_user(connection=g.db, token=token)
+    return user if user and user["authorized"] > 0 else None
+
+
+def set_login_cookie(response, token):
+    response.set_cookie('token', token, max_age=appsettings.MAX_COOKIE_AGE,
+                        expires=time.time() + appsettings.MAX_COOKIE_AGE,
+                        httponly=True, secure=request.is_secure, samesite='Lax')
+
+
+def approve_and_notify(email, approval_token=None):
+    if not database.approve_user(g.db, email, approval_token):
+        return False
+    try:
+        helper.send_email(
+            recipient=email,
+            subject=f"{appsettings.APP_TITLE}: registracija odobrena",
+            body=f"Vasa registracija je odobrena. Mozete se prijaviti na {request.host_url}",
+        )
+    except Exception:
+        logger.exception("Could not notify approved user %s", email)
+        flash("Nalog je odobren, ali mejl potvrde nije poslat. Korisnik može da se prijavi.")
+    return True
 
 
 @application.before_request
@@ -109,8 +132,7 @@ def login():
         database.update_user(connection=g.db, email=user_email, token=token, authorized=2)
 
         response = make_response(redirect(safe_url_for('index')))
-        response.set_cookie('token', token, max_age=appsettings.MAX_COOKIE_AGE,
-                            expires=time.time() + appsettings.MAX_COOKIE_AGE)
+        set_login_cookie(response, token)
         return response
 
     return render_template('signin.html', title=appsettings.APP_TITLE, url_for=safe_url_for)
@@ -118,6 +140,10 @@ def login():
 
 @application.route('/logout')
 def logout():
+    token = request.cookies.get('token')
+    if token:
+        database.revoke_token(g.db, token)
+    session.clear()
     response = redirect(safe_url_for('login'))
     response.set_cookie('token', 'None', expires=0)
     return response
@@ -125,10 +151,14 @@ def logout():
 
 @application.route('/oauth2callback')
 def oauth2callback():
+    session.pop('registration', None)
     try:
         google.authorize_access_token()
         user_info = google.get('userinfo').json()
         email = user_info["email"]
+        if (not isinstance(email, str) or not email.strip()
+                or user_info.get('verified_email') is not True):
+            raise ValueError("Google did not return a verified email")
         picture = user_info.get("picture")
     except Exception as error:
         logger.exception(f"OAuth2 callback error {error}")
@@ -139,15 +169,14 @@ def oauth2callback():
 
     user = database.get_user(connection=g.db, email=email)
     if not user:
-        return redirect(safe_url_for('complete_registration', email=email))
-
-    token = helper.generate_token()
-    database.update_user(connection=g.db, email=email, token=token, picture=picture)
+        session['registration'] = {'email': email, 'picture': picture, 'issued_at': time.time()}
+        return redirect(safe_url_for('complete_registration'))
 
     if user["authorized"] > 0:
+        token = helper.generate_token()
+        database.update_user(connection=g.db, email=email, token=token, picture=picture)
         response = make_response(redirect(safe_url_for('index')))
-        response.set_cookie('token', token, max_age=appsettings.MAX_COOKIE_AGE,
-                            expires=time.time() + appsettings.MAX_COOKIE_AGE)
+        set_login_cookie(response, token)
     else:
         flash("Vas nalog jos uvek nije odobren.")
         response = redirect(safe_url_for("login"))
@@ -192,23 +221,30 @@ def index_post():
 
 @application.route('/complete_registration', methods=['GET', 'POST'])
 def complete_registration():
+    identity = session.get('registration')
+    if not identity or not 0 <= time.time() - identity.get('issued_at', 0) <= 900:
+        session.pop('registration', None)
+        flash("Prijavite se Google nalogom da biste završili registraciju.")
+        return redirect(safe_url_for('login'))
+    email = identity['email']
     if request.method == 'GET':
-        email = request.args.get('email')
-        if not email:
-            return "Missing email", 400
         return render_template('complete_registration.html', email=email,
                                title=appsettings.APP_TITLE, url_for=safe_url_for)
 
-    email = request.form.get('email')
-    address = request.form.get('address')
-    if not email or not address:
+    address = request.form.get('address', '').strip()
+    if not address:
         flash("Nedostaju podaci.")
         return redirect(request.url)
 
     approval_token = helper.generate_token()
-    database.add_user(connection=g.db, email=email, token=approval_token, address=address)
+    created = database.add_user(connection=g.db, email=email, token=None, address=address,
+                                approval_token=approval_token, picture=identity.get('picture'))
+    session.pop('registration', None)
+    if not created:
+        flash("Nalog već postoji. Prijavite se da biste nastavili.")
+        return redirect(safe_url_for('login'))
 
-    approve_link = f"{request.host_url}approve_user?email={email}&token={approval_token}"
+    approve_link = request.host_url.rstrip('/') + safe_url_for('approve_user', email=email, token=approval_token)
     body = (
         f"Novi korisnik: {email}\n"
         f"Adresa: {address}\n\n"
@@ -234,25 +270,9 @@ def approve_user():
     if not email or not token:
         return "Invalid request.", 400
 
-    user = database.get_user(connection=g.db, email=email)
-    if not user:
-        return "User not found.", 404
-    if user.get('token') != token:
+    if not approve_and_notify(email, token):
         return "Invalid or expired approval token.", 403
-
-    database.update_user(connection=g.db, email=email, authorized=1,
-                         token=helper.generate_token())
-
-    try:
-        helper.send_email(
-            recipient=email,
-            subject=f"{appsettings.APP_TITLE}: registracija odobrena",
-            body=f"Vasa registracija je odobrena. Mozete se prijaviti na {request.host_url}",
-        )
-    except Exception as error:
-        logger.exception(f"Could not notify {email}: {error}")
-
-    return f"Korisnik {email} je odobren."
+    return f"Korisnik {email} je odobren.", 200, {"Content-Type": "text/plain; charset=utf-8"}
 
 
 @application.route('/manage_users', methods=['GET'])
@@ -293,9 +313,11 @@ def manage_users_post():
         return redirect(safe_url_for('manage_users'))
 
     if action == 'authorize':
-        database.update_user(connection=g.db, email=email, authorized=1)
+        approve_and_notify(email)
     elif action == 'make_admin':
-        database.update_user(connection=g.db, email=email, authorized=2)
+        target = database.get_user(connection=g.db, email=email)
+        if target and target['authorized'] == 1:
+            database.update_user(connection=g.db, email=email, authorized=2)
     elif action == 'remove':
         database.delete_user(connection=g.db, email=email)
     elif action == 'update_address':
@@ -321,8 +343,12 @@ def run_check():
         logger.exception(f"Check run failed: {error}")
         return f"Check run failed: {error}", 500
 
+    if result.get('skip_reason') == 'before_start_hour':
+        return (f"Provera nije pokrenuta. Pocetak provera je u {result['start_hour']:02d}:00 "
+                "(Europe/Belgrade).\n"), 200, {"Content-Type": "text/plain; charset=utf-8"}
+
     if result["skipped"]:
-        return f"Provera za {result['date']} je vec uspesno obavljena danas.\n", 200, \
+        return f"Provera za {result['date']} je vec uspesno obavljena danas. Nema mejlova za ponovno slanje.\n", 200, \
                {"Content-Type": "text/plain; charset=utf-8"}
 
     if result["errors"]:
@@ -330,10 +356,13 @@ def run_check():
 
     return (
         f"Datum: {result['date']}\n"
+        f"Provera: {'sacuvana ranije' if result.get('check_cached') else 'obavljena u ovom pozivu'}\n"
+        f"Provera zavrsena: {'da' if result.get('check_complete') else 'ne'}\n"
         f"Provereno korisnika: {result['checked']}\n"
         f"Obavesteno: {', '.join(result['notified']) or '-'}\n"
+        f"Preostalih mejlova za slanje: {result.get('pending', 0)}\n"
         f"Greske: {'; '.join(result['errors']) or '-'}\n"
-    ), 200, {"Content-Type": "text/plain; charset=utf-8"}
+    ), 500 if result["errors"] else 200, {"Content-Type": "text/plain; charset=utf-8"}
 
 if __name__ == "__main__":
     application.run(debug=False, host="0.0.0.0", port=5000)

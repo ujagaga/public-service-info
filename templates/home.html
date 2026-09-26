@@ -1,40 +1,21 @@
 {% extends "base.html" %}
-
+{% from "address_picker.html" import address_picker with context %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/home.css') }}">{% endblock %}
 {% block content %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/complete_registration.css') }}">
+<div class="eyebrow">Vaš mali podsetnik za svaki dan</div>
+<div class="page-heading"><div><h1>Budite spremni.<br>Pre nego što nestane.</h1><p>Najave isključenja struje i vode za vašu adresu, na jednom mestu.</p></div><span class="badge">Novi Sad</span></div>
+<div class="dashboard-grid">
+<section class="panel address-panel">
+<div class="panel-heading"><span class="icon-tile"><i class="fa-solid fa-location-dot" aria-hidden="true"></i></span><div><h2>Moja adresa</h2><p>Gde želite da pratimo najave?</p></div></div>
+<form method="post" action="{{ url_for('index') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+{{ address_picker(user.address) }}
 
-  <div class="user_picture_wrapper">
-    <img src="{{ user.picture }}" alt="User Picture" class="user_picture">
-  </div>
-
-  <nav class="admin_nav">
-    {% if admin %}
-    <a href="{{ url_for('manage_users') }}" class="nav_btn manage_users_btn" title="Korisnici">
-      <i class="fa-solid fa-user-tie"></i>
-      {% if unauthorized_users|length > 0 %}
-      <span class="red_dot"></span>
-      {% endif %}
-    </a>
-    {% endif %}
-    <a href="{{ url_for('logout') }}" class="nav_btn" title="Odjava"><i class="fa-solid fa-right-from-bracket"></i></a>
-  </nav>
-
-  <h1>Moja adresa</h1>
-
-  {% with messages = get_flashed_messages() %}
-    {% if messages %}<p class="red_notification">{{ messages[0] }}</p>{% endif %}
-  {% endwith %}
-
-  <p>Obavestenja o iskljucenjima struje i vode saljemo na {{ user.email }}.</p>
-
-  <form method="post" action="{{ url_for('index') }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <div class="row">
-      <input type="text" name="address" id="address" value="{{ user.address or '' }}" required class="form_input">
-    </div>
-    <div class="row single" style="margin-top: 1.5rem;">
-      <button type="submit" class="nav_btn">Sacuvaj</button>
-    </div>
-  </form>
+<button type="submit" class="button"><i class="fa-solid fa-check" aria-hidden="true"></i> Sačuvaj adresu</button></form>
+<div class="delivery"><i class="fa-solid fa-envelope" aria-hidden="true"></i><div><span>Obaveštenja stižu na</span><strong class="wrap">{{ user.email }}</strong></div></div>
+</section>
+<aside class="how-panel"><span class="eyebrow">Kako funkcioniše</span><h2>Vi planirate dan.<br>Mi pratimo najave.</h2><ol><li><strong>Sačuvajte svoju adresu</strong><p>Dovoljni su ulica, broj i mesto.</p></li><li><strong>Proveravamo najave</strong><p>Pratimo objave o planiranim isključenjima za naredni dan.</p></li><li><strong>Dobijate mejl</strong><p>Kada najava obuhvata vašu adresu, šaljemo vam obaveštenje.</p></li></ol></aside>
+</div>
+<div class="section-heading"><h2>Šta pratimo za vas</h2><span>Planirana isključenja</span></div>
+<div class="service-grid"><article class="panel service"><span class="icon-tile power"><i class="fa-solid fa-bolt" aria-hidden="true"></i></span><div><h3>Električna energija</h3><p>Najave planiranih prekida u snabdevanju strujom.</p><span class="source">Izvor: Elektrodistribucija Srbije</span></div></article><article class="panel service"><span class="icon-tile water"><i class="fa-solid fa-droplet" aria-hidden="true"></i></span><div><h3>Vodosnabdevanje</h3><p>Najave radova i planiranih prekida u snabdevanju vodom.</p><span class="source">Izvor: JKP Vodovod i kanalizacija Novi Sad</span></div></article></div>
+<p class="footnote"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> Obaveštenja se zasnivaju na objavljenim najavama. Iznenadni kvarovi nisu obuhvaćeni.</p>
 {% endblock %}

@@ -1,26 +1,40 @@
 <!DOCTYPE html>
-<html lang="sr">
+<html lang="sr-Latn">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-  <meta http-equiv="Pragma" content="no-cache" />
-  <meta http-equiv="Expires" content="0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#244b40">
   <title>{{ title or "Public Service Info" }}</title>
-
-  <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/fontawesome.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/solid.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/brands.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+  {% if request.endpoint in ['index', 'complete_registration', 'manage_users'] %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/address_picker.css') }}">
+  {% endif %}
+  {% block styles %}{% endblock %}
 </head>
 <body>
-  <div class="page-wrapper">
-    <div class="container">
-      {% block content %}{% endblock %}
-    </div>
-  </div>
-
-  <script src="{{ url_for('static', filename='js/common.js') }}"></script>
-</body>
-</html>
+<a class="skip-link" href="#main">Pređi na sadržaj</a>
+<header class="site-header"><div class="header-inner">
+  <a class="brand" href="{{ url_for('index') }}"><span class="brand-mark"><i class="fa-solid fa-bell" aria-hidden="true"></i></span><span>Komšijski info<small>STRUJA · VODA · NOVI SAD</small></span></a>
+  <nav aria-label="Glavna navigacija">
+  {% if user is defined and user %}
+    <a class="nav-link {% if request.endpoint == 'index' %}selected{% endif %}" href="{{ url_for('index') }}">Moja adresa</a>
+    {% if user.authorized > 1 %}<a class="nav-link {% if request.endpoint == 'manage_users' %}selected{% endif %}" href="{{ url_for('manage_users') }}">Korisnici {% if unauthorized_users %}<span class="count">{{ unauthorized_users|length }}</span>{% endif %}</a>{% endif %}
+    <a class="nav-link" href="{{ url_for('logout') }}">Odjava <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i></a>
+  {% else %}<span class="location"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> Novi Sad</span>{% endif %}
+  </nav>
+</div></header>
+<main id="main" class="container">
+{% with messages = get_flashed_messages() %}{% for message in messages %}<div class="notice" role="status"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> {{ message }}</div>{% endfor %}{% endwith %}
+{% block content %}{% endblock %}
+</main>
+<footer class="site-footer"><span>Komšijski info <span class="footer-divider">/</span> Manje iznenađenja. Lakše planiranje.</span><span>Obaveštenja o planiranim isključenjima · Novi Sad</span></footer>
+<script src="{{ url_for('static', filename='js/common.js') }}"></script>
+{% if request.endpoint in ['index', 'complete_registration', 'manage_users'] %}
+<script src="{{ url_for('static', filename='js/address_picker.js') }}"></script>
+{% endif %}
+{% block scripts %}{% endblock %}
+</body></html>

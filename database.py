@@ -1,4 +1,5 @@
 import logging
+import json
 import os
 import sqlite3
 import time
@@ -29,6 +30,8 @@ def table_exists(connection, name: str) -> bool:
 
 
 def init_database(connection):
+    # Serialize schema upgrades when several CGI/workers start together.
+    connection.execute("BEGIN IMMEDIATE")
     cursor = connection.cursor()
     if not table_exists(connection, "users"):
         cursor.execute("""
@@ -45,11 +48,61 @@ def init_database(connection):
             "INSERT INTO users (email, authorized) VALUES (?, ?);",
             (appsettings.ADMIN_EMAIL, 2),
         )
-        connection.commit()
+
+    columns = {row[1] for row in cursor.execute("PRAGMA table_info(users)")}
+    if "approval_token" not in columns:
+        cursor.execute("ALTER TABLE users ADD COLUMN approval_token TEXT")
+        # Old admin approvals left approval credentials in the login-token field.
+        # Preserve pending links, then invalidate all legacy login credentials once.
+        cursor.execute("UPDATE users SET approval_token = token WHERE authorized = 0")
+        cursor.execute("UPDATE users SET token = NULL")
 
     if not table_exists(connection, "checks"):
         cursor.execute("CREATE TABLE checks (date TEXT PRIMARY KEY, done_at TEXT);")
-        connection.commit()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS deliveries (
+            email TEXT NOT NULL,
+            address TEXT NOT NULL,
+            service TEXT NOT NULL,
+            outage_date TEXT NOT NULL,
+            sent_at INTEGER NOT NULL,
+            PRIMARY KEY (email, address, service, outage_date)
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS check_batches (
+            date TEXT PRIMARY KEY,
+            addresses_json TEXT NOT NULL
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS service_checks (
+            date TEXT NOT NULL,
+            service TEXT NOT NULL,
+            results_json TEXT NOT NULL,
+            done_at INTEGER NOT NULL,
+            PRIMARY KEY (date, service)
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS notification_outbox (
+            id INTEGER PRIMARY KEY,
+            check_date TEXT NOT NULL,
+            outage_date TEXT NOT NULL,
+            email TEXT NOT NULL,
+            address TEXT NOT NULL,
+            service TEXT NOT NULL,
+            details TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT,
+            sent_at INTEGER,
+            UNIQUE (email, address, service, outage_date)
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS outbox_pending ON notification_outbox (check_date, status)")
+    connection.commit()
 
     cursor.close()
 
@@ -67,10 +120,124 @@ def record_check(connection, date: str):
     connection.commit()
 
 
-def add_user(connection, email: str, token: str, address: str):
-    connection.execute(
-        "INSERT OR REPLACE INTO users (email, token, address) VALUES (?, ?, ?);",
-        (email, token, address),
+def get_check_batch(connection, date: str) -> list[str]:
+    row = connection.execute("SELECT addresses_json FROM check_batches WHERE date = ?", (date,)).fetchone()
+    if row:
+        return json.loads(row['addresses_json'])
+    addresses = get_check_addresses(connection)
+    connection.execute("INSERT INTO check_batches (date, addresses_json) VALUES (?, ?)",
+                       (date, json.dumps(addresses, ensure_ascii=False)))
+    connection.commit()
+    return addresses
+
+
+def get_service_checks(connection, date: str) -> dict:
+    rows = connection.execute("SELECT service, results_json FROM service_checks WHERE date = ?", (date,))
+    return {row['service']: json.loads(row['results_json']) for row in rows}
+
+
+def save_service_check(connection, date: str, outage_date: str, service: str, matches: dict) -> int:
+    """Commit the successful analysis and its recipients together, before SMTP."""
+    with connection:
+        connection.execute(
+            "INSERT INTO service_checks (date, service, results_json, done_at) VALUES (?, ?, ?, ?)",
+            (date, service, json.dumps(matches, ensure_ascii=False), int(time.time())),
+        )
+        users = connection.execute("SELECT email, address FROM users WHERE authorized > 0").fetchall()
+        checked = 0
+        for user in users:
+            result = matches.get(user['address'])
+            if result is None:
+                continue
+            checked += 1
+            if not result['outage']:
+                continue
+            # Also honor deliveries made by versions predating the outbox.
+            connection.execute("""
+                INSERT OR IGNORE INTO notification_outbox
+                    (check_date, outage_date, email, address, service, details)
+                SELECT ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (
+                    SELECT 1 FROM deliveries
+                    WHERE email = ? AND address = ? AND service = ? AND outage_date = ?
+                )
+            """, (date, outage_date, user['email'], user['address'], service, result['details'],
+                  user['email'], user['address'], service, outage_date))
+    return checked
+
+
+def get_pending_notifications(connection, date: str) -> list[dict]:
+    # Do not retry mail for a removed/unapproved user or their old address.
+    connection.execute("""
+        UPDATE notification_outbox SET status = 'cancelled'
+        WHERE check_date = ? AND status = 'pending' AND NOT EXISTS (
+            SELECT 1 FROM users WHERE users.email = notification_outbox.email
+            AND users.address = notification_outbox.address AND users.authorized > 0
+        )
+    """, (date,))
+    connection.commit()
+    rows = connection.execute("""
+        SELECT * FROM notification_outbox WHERE check_date = ? AND status = 'pending'
+        ORDER BY email, address, service
+    """, (date,))
+    return [dict(row) for row in rows]
+
+
+def finish_notification_attempt(connection, notifications: list[dict], error: str | None = None):
+    with connection:
+        for item in notifications:
+            if error is None:
+                connection.execute("""
+                    INSERT OR IGNORE INTO deliveries (email, address, service, outage_date, sent_at)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (item['email'], item['address'], item['service'], item['outage_date'], int(time.time())))
+                connection.execute("""
+                    UPDATE notification_outbox SET status = 'sent', sent_at = ?,
+                    attempts = attempts + 1, last_error = NULL WHERE id = ?
+                """, (int(time.time()), item['id']))
+            else:
+                connection.execute("""
+                    UPDATE notification_outbox SET attempts = attempts + 1, last_error = ? WHERE id = ?
+                """, (error, item['id']))
+
+
+def add_user(connection, email: str, token: str | None, address: str,
+             approval_token: str | None = None, picture: str | None = None) -> bool:
+    cursor = connection.execute(
+        "INSERT INTO users (email, token, address, approval_token, picture) VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(email) DO NOTHING;",
+        (email, token, address, approval_token, picture),
+    )
+    connection.commit()
+    return cursor.rowcount == 1
+
+
+def approve_user(connection, email: str, approval_token: str | None = None) -> bool:
+    sql = "UPDATE users SET authorized = 1, token = NULL, approval_token = NULL WHERE email = ? AND authorized = 0"
+    params = [email]
+    if approval_token is not None:
+        sql += " AND approval_token = ?"
+        params.append(approval_token)
+    cursor = connection.execute(sql, params)
+    connection.commit()
+    return cursor.rowcount == 1
+
+
+def revoke_token(connection, token: str):
+    connection.execute("UPDATE users SET token = NULL WHERE token = ?", (token,))
+    connection.commit()
+
+
+def delivery_sent(connection, email: str, address: str, service: str, outage_date: str) -> bool:
+    return connection.execute(
+        "SELECT 1 FROM deliveries WHERE email = ? AND address = ? AND service = ? AND outage_date = ?",
+        (email, address, service, outage_date),
+    ).fetchone() is not None
+
+
+def record_deliveries(connection, email: str, address: str, services: list[str], outage_date: str):
+    connection.executemany(
+        "INSERT INTO deliveries (email, address, service, outage_date, sent_at) VALUES (?, ?, ?, ?, ?)",
+        [(email, address, service, outage_date, int(time.time())) for service in services],
     )
     connection.commit()
 
@@ -78,6 +245,13 @@ def add_user(connection, email: str, token: str, address: str):
 def delete_user(connection, email: str):
     connection.execute("DELETE FROM users WHERE email = ?;", (email,))
     connection.commit()
+
+
+def get_check_addresses(connection) -> list[str]:
+    rows = connection.execute(
+        "SELECT DISTINCT address FROM users WHERE authorized > 0 AND address IS NOT NULL ORDER BY address"
+    )
+    return [row['address'] for row in rows if row['address'].strip()]
 
 
 def get_user(connection, email: str = None, token: str = None, authorized: int = None):

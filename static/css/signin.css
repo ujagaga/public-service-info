@@ -1,35 +1,133 @@
-.signin_box {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100vh;
-    text-align: center;
+.signin-layout {
+  display:grid;
+  grid-template-columns:1.25fr 1fr;
+  gap:80px;
+  align-items:center;
+  padding:36px 0 55px;
 }
 
-.login_btn {
-    text-decoration: none;
-    color: #353136;
-    display: inline-flex;
-    flex-direction: column;
-    align-items: center;
-    transition: background 0.2s ease;
-    font-size: 3em;
-    opacity: 0.8;
+.welcome h1 {
+  font-size:clamp(2.5rem,4.5vw,3.65rem);
+  line-height:1.13;
 }
 
-.login_btn i{
-    background-color: var(--accent-color);
-    padding: 0.2em 0.1em;
-    border-radius: 8px;
-    color: #fff;
+.welcome h1 span {
+  color:#788866;
 }
 
-.login_btn:hover {
-    opacity: 1;
+.welcome>p {
+  max-width:490px;
+  font-size:15px;
+  margin:24px 0;
 }
 
-.red_notification {
-    color: red;
-    margin-top: 1rem;
+.service-tags {
+  display:flex;
+  flex-wrap:wrap;
+  gap:12px;
+  margin:27px 0;
+}
+
+.service-tags span {
+  font-size:12px;
+  background:#edeedc;
+  padding:10px 13px;
+  border-radius:7px;
+}
+
+.service-tags span+span {
+  background:#e7eef0;
+}
+
+.service-tags i {
+  margin-right:7px;
+}
+
+.welcome-note {
+  display:flex;
+  gap:11px;
+  font-size:12px;
+  color:var(--muted);
+  margin-top:36px;
+}
+
+.signin-panel {
+  padding:34px;
+}
+
+.signin-panel h2 {
+  font-size:25px;
+  margin:24px 0 12px;
+}
+
+.signin-panel>p {
+  font-size:14px;
+}
+
+.google-button {
+  width:100%;
+  margin:15px 0;
+  background:var(--green);
+  font-size:12px;
+  padding:16px 12px;
+}
+
+.google-button .fa-google {
+  font-size:17px;
+  margin-right:5px;
+}
+
+.google-button .fa-arrow-right {
+  margin-left:auto;
+}
+
+.signin-panel .signin-detail {
+  font-size:11px;
+  text-align:center;
+}
+
+.registration-note {
+  margin-top:28px;
+  padding-top:24px;
+  border-top:1px solid var(--line);
+  font-size:12px;
+}
+
+.registration-note p {
+  margin:7px 0 0;
+  font-size:12px;
+}
+
+.signin-bottom {
+  display:flex;
+  justify-content:space-between;
+  border-top:1px solid var(--line);
+  padding-top:26px;
+  font-size:12px;
+  color:#839279;
+  gap:20px;
+}
+
+.signin-bottom strong {
+  margin-left:14px;
+  font-weight:500;
+  color:var(--ink);
+}
+
+@media(max-width:800px) {
+  .signin-layout {
+    grid-template-columns:1fr;
+    gap:30px;
+    padding:10px 0 35px;
+  }
+  .welcome h1 {
+    font-size:2.8rem;
+  }
+  .signin-bottom {
+    flex-wrap:wrap;
+  }
+  .signin-panel {
+    max-width:520px;
+    width:100%;
+  }
 }

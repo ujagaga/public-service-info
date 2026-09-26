@@ -1,24 +1,5 @@
 {% extends "base.html" %}
-
-{% block content %}
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/complete_registration.css') }}">
-
-    <h2>Registracija</h2>
-    <p>Niste registrovani korisnik. Unesite adresu za koju zelite obavestenja o iskljucenjima.</p>
-
-    <form method="post" action="{{ url_for('complete_registration') }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="email" value="{{ email }}">
-
-        <div class="row">
-            <label for="address">Adresa:</label>
-        </div>
-        <div class="row">
-            <input type="text" name="address" id="address" required class="form_input">
-        </div>
-
-        <div class="row single" style="margin-top: 1.5rem;">
-            <button type="submit" class="nav_btn">Posalji</button>
-        </div>
-    </form>
-{% endblock %}
+{% from "address_picker.html" import address_picker with context %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/complete_registration.css') }}">{% endblock %}
+{% block content %}<div class="registration-layout"><div class="eyebrow">Još samo jedan korak</div><h1>Gde pratimo najave?</h1><p class="intro">Unesite adresu za koju želite obaveštenja o planiranim isključenjima struje i vode.</p><section class="panel"><div class="panel-heading"><span class="icon-tile"><i class="fa-solid fa-location-dot" aria-hidden="true"></i></span><div><h2>Vaša adresa</h2><p class="wrap">{{ email }}</p></div></div><form method="post" action="{{ url_for('complete_registration') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{{ address_picker() }}
+<button type="submit" class="button">Pošalji zahtev <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></form></section><p class="registration-help"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> Administrator treba da odobri vaš nalog. O odobrenju ćete dobiti mejl.</p><a class="back-link" href="{{ url_for('login') }}">← Nazad na prijavu</a></div>{% endblock %}

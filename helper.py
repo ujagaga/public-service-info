@@ -1,7 +1,6 @@
 import logging
-import random
+import secrets
 import smtplib
-import string
 import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -14,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 def generate_token():
-    return ''.join(random.choices(string.ascii_letters, k=32))
+    return secrets.token_urlsafe(32)
 
 
 def fetch_html(url: str, timeout: float = 10.0) -> str:
@@ -46,7 +45,7 @@ def send_email(recipient, subject, body):
     msg.attach(MIMEText(body, 'plain'))
 
     logger.info(f"Sending email to: {recipient}")
-    with smtplib.SMTP(appsettings.SMTP_SERVER, appsettings.SMTP_PORT) as server:
+    with smtplib.SMTP(appsettings.SMTP_SERVER, appsettings.SMTP_PORT, timeout=30) as server:
         server.ehlo()
         server.starttls()
         server.login(appsettings.SMTP_USER, appsettings.SMTP_PASS)

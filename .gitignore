@@ -1,5 +1,6 @@
 appsettings.py
 client_secret.json
 database.db
+*.check.lock
 __pycache__
 .venv
