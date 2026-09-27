@@ -22,7 +22,7 @@
       const input = get('data-address-input');
       const button = get('data-map-search');
       const city = get('data-address-city');
-      assert(city.options.length === 1 && city.value === 'Novi Sad', 'City dropdown must contain only Novi Sad');
+      assert(city.tagName === 'DIV' && city.textContent.trim() === 'Novi Sad', 'City must be static configured text');
       const frame = get('data-map-frame');
       const status = get('data-map-status');
       let submissions = 0;
@@ -77,7 +77,7 @@
       otherInput.value = 'Another user 42';
       otherInput.dispatchEvent(new Event('input', { bubbles: true }));
       other.querySelector('[data-map-search]').click();
-      assert(requests.at(-1).url.searchParams.get('q') === 'Another user 42, Novi Sad', 'Admin-style address must include selected city');
+      assert(requests.at(-1).url.searchParams.get('q') === 'Another user 42, Novi Sad', 'Admin-style address must include configured city');
       assert(requests.at(-1).frame === otherFrame, 'Independent forms must update their own iframe');
       assert(get('data-map-address').textContent === `${input.value}, Novi Sad`, 'Second form must not alter the first preview');
       otherInput.value = 'Next user 56';
@@ -85,7 +85,7 @@
       assert(other.querySelector('[data-map-results]').hidden && !otherFrame.hasAttribute('src'), 'Switching admin users must clear the prior map');
       assert(!document.querySelector('script[src*="maps.googleapis.com"]'), 'Google SDK must not be loaded');
 
-      output.textContent = 'PASS: Novi Sad dropdown, city appended to map query, keyless iframe, encoded queries, updates, empty input, stale-map clearing, independent forms, and manual address preservation';
+      output.textContent = 'PASS: Static city label, city appended to map query, keyless iframe, encoded queries, updates, empty input, stale-map clearing, independent forms, and manual address preservation';
       document.body.dataset.testResult = 'pass';
     } catch (error) {
       output.textContent = `FAIL: ${error.stack || error}`;

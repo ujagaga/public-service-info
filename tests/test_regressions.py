@@ -22,7 +22,7 @@ initial_db = tempfile.TemporaryDirectory()
 settings.DB_NAME = str(Path(initial_db.name) / 'initial.db')
 sys.modules['appsettings'] = settings
 # Skip loading real OAuth credentials during module initialization only.
-with patch.dict(os.environ, {'FLASK_DEBUG': '1'}):
+with patch.dict(os.environ, {'FLASK_DEBUG': '1'}), patch('helper.generate_contact_image'):
     import index
 import checker
 import database
@@ -40,12 +40,15 @@ def hold_check_lock(started, release):
 
 
 class RegressionTests(unittest.TestCase):
+    real_contact_generator = staticmethod(helper.generate_contact_image)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.db_patch = patch.object(database, 'db_path', str(Path(self.temp.name) / 'test.db'))
         self.db_patch.start()
         self.addCleanup(self.db_patch.stop)
+        self.contact_image = self.enterContext(patch.object(helper, 'generate_contact_image'))
         database.setup_initial_db()
         self.enterContext(patch.object(settings, 'CHECK_START_HOUR', 0))
         self.client = index.application.test_client()
@@ -54,6 +57,20 @@ class RegressionTests(unittest.TestCase):
         self.enterContext(patch.object(checker.httpx, 'get', side_effect=AssertionError('Unexpected HTTP GET')))
         self.enterContext(patch.object(checker.httpx, 'post', side_effect=AssertionError('Unexpected HTTP POST')))
         self.tomorrow = datetime.datetime.now(ZoneInfo('Europe/Belgrade')).date() + datetime.timedelta(days=1)
+
+    def test_contact_image_generated_only_for_new_database(self):
+        self.contact_image.assert_called_once_with(
+            settings.ADMIN_EMAIL, os.path.join(database.script_dir, 'static', 'contact.png'))
+        database.setup_initial_db()
+        self.contact_image.assert_called_once()
+
+    def test_contact_image_generation(self):
+        destination = Path(self.temp.name) / 'contact.png'
+        # Call the original function while the database setup mock stays active.
+        self.real_contact_generator('admin@example.com', destination)
+        data = destination.read_bytes()
+        self.assertTrue(data.startswith(b'\x89PNG\r\n\x1a\n'))
+        self.assertNotIn(b'admin@example.com', data)
 
     def db(self):
         conn = database.open_db()

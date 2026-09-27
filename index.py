@@ -19,6 +19,9 @@ from flask_wtf import CSRFProtect
 import appsettings
 import database
 import helper
+from log_setup import configure_logging
+
+configure_logging()
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -36,6 +39,11 @@ logging.basicConfig(
     format="[%(asctime)s] %(levelname)s [%(name)s.%(funcName)s:%(lineno)d] %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+@application.context_processor
+def address_settings():
+    return {'address_city': getattr(appsettings, 'CITY', 'Novi Sad')}
+
 
 csrf = CSRFProtect(application)
 
@@ -195,6 +203,7 @@ def index():
 
     resp = make_response(render_template(
         'home.html',
+        check_time=getattr(appsettings, 'CHECK_START_HOUR', 19),
         user=user,
         admin=user["authorized"] > 1,
         unauthorized_users=unauthorized_users,

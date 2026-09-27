@@ -2,6 +2,7 @@ APP_TITLE = "Public Service Info"
 ADMIN_EMAIL = "admin@email.com"                 # Seeded as the first admin account
 
 GEMINI_API_KEY = "The key you generate from ai studio"
+CITY="Novi Sad"
 POWER_CHECK_URL = "https://elektrodistribucija.rs/planirana-iskljucenja-srbija/NoviSad_Dan_1_Iskljucenja.htm"
 WATER_CHECK_URL = "https://www.vikns.rs/category/najava-radova-sr/"
 

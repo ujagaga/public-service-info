@@ -221,8 +221,8 @@ reporting. They do not require local secrets or send emails.
 ## Google Maps address preview (no API key)
 
 Registration, address settings, and the admin address editor include **Prikaži na
-mapi**. Enter the street and house number; the city dropdown below is set to
-**Novi Sad** (the only option). The city is appended to map queries
+mapi**. Enter the street and house number; the static city label below comes from
+`CITY` in `appsettings.py` (default **Novi Sad**). The city is appended to map queries
 automatically, unless already present in the address. Click to show it
 in an iframe using `https://maps.google.com/maps?q=...&output=embed`. The query is
 URL-encoded, so spaces, Serbian characters, and punctuation are preserved.
@@ -247,3 +247,37 @@ For offline browser interaction checks, run
 `/tmp/psi-address-picker-test.html` in Chrome. It checks query encoding, dynamic
 updates, stale-map clearing, and independent forms while intercepting iframe
 navigation so no real Google requests are made.
+
+## Text log
+
+`public-service-info.log` in the application directory records successful page
+fetches (including duration), completed service checks, and errors with tracebacks.
+Timestamps use Europe/Belgrade time with the UTC offset. Cached checks do not
+produce new fetch-success entries. Logging works for both web/CGI and CLI runs.
+
+Each file is limited to 1,000,000 bytes (1 MB). Rotation keeps only the current
+file and `public-service-info.log.1`; older entries are discarded. Oversized
+individual entries are truncated. The application directory must be writable.
+An empty `public-service-info.log.lock` coordinates writes across processes;
+keep it in place while the app is running.
+
+```sh
+tail -f public-service-info.log
+```
+
+## Footer contact image
+
+On first database initialization, the app renders `ADMIN_EMAIL` into
+`static/contact.png`. Later startups leave it unchanged. The PNG is generated
+locally and excluded from git; its metadata contains no email text.
+Install ImageMagick (`convert`) and the DejaVu Sans font before initializing the
+database (Debian/Ubuntu: `sudo apt install imagemagick fonts-dejavu-core`).
+The `static` directory must be writable during initialization. Image generation
+failure aborts initialization so the next startup can retry.
+
+Existing databases keep their current image. To regenerate it after changing
+`ADMIN_EMAIL`, without changing the database, run:
+
+```sh
+python -c "import appsettings, helper; helper.generate_contact_image(appsettings.ADMIN_EMAIL, 'static/contact.png')"
+```

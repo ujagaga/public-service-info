@@ -3,7 +3,7 @@
 
   function initPicker(root) {
     const input = root.querySelector('[data-address-input]');
-    const city = root.querySelector('[data-address-city]');
+    const city = root.querySelector('[data-address-city]').textContent.trim();
     const search = root.querySelector('[data-map-search]');
     const status = root.querySelector('[data-map-status]');
     const results = root.querySelector('[data-map-results]');
@@ -12,10 +12,15 @@
 
     function mapQuery() {
       const address = input.value.trim();
-      if (!address) return city.value;
+      if (!address) return city;
       // Previously saved addresses can already include the city in either script.
-      const hasCity = /(?:^|,\s*)(?:21000\s+)?(?:novi\s+sad|нови\s+сад)(?=\s*(?:,|$))/iu.test(address);
-      return hasCity ? address : `${address}, ${city.value}`;
+      const normalize = value => value.toLocaleLowerCase('sr').replace(/\s+/g, ' ').trim();
+      const cityNames = [normalize(city)];
+      if (cityNames[0] === 'novi sad') cityNames.push('нови сад');
+      if (cityNames[0] === 'нови сад') cityNames.push('novi sad');
+      const hasCity = address.split(',').some(part =>
+        cityNames.includes(normalize(part).replace(/^\d{5}\s+/, '')));
+      return hasCity ? address : `${address}, ${city}`;
     }
 
     function reset() {
@@ -27,7 +32,6 @@
       delete status.dataset.state;
     }
     input.addEventListener('input', reset);
-    city.addEventListener('change', reset);
 
     search.addEventListener('click', () => {
       if (!input.value.trim()) {

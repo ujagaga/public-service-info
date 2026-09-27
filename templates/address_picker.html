@@ -6,12 +6,10 @@
          placeholder="npr. Bulevar oslobođenja 12"
          aria-describedby="{{ field_id }}-hint">
   <div class="address-city">
-    <label for="{{ field_id }}-city">Grad</label>
-    <select id="{{ field_id }}-city" name="city" data-address-city autocomplete="address-level2">
-      <option value="Novi Sad" selected>Novi Sad</option>
-    </select>
+    <span class="address-city-label" id="{{ field_id }}-city-label">Grad</span>
+    <div class="address-city-value" data-address-city aria-labelledby="{{ field_id }}-city-label">{{ address_city }}</div>
   </div>
-  <p class="hint" id="{{ field_id }}-hint">Unesite ulicu i kućni broj. Izabrani grad se automatski dodaje pri prikazu na mapi.</p>
+  <p class="hint" id="{{ field_id }}-hint">Unesite ulicu i kućni broj. Grad se automatski dodaje pri prikazu na mapi.</p>
   <div class="address-map-actions">
     <button type="button" class="button secondary" data-map-search hidden>
       <i class="fa-solid fa-map-location-dot" aria-hidden="true"></i> Prikaži na mapi

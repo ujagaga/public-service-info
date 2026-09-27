@@ -332,6 +332,19 @@ input:focus {
   line-height:1.7;
 }
 
+.footer-contact {
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+
+.footer-contact img {
+  display:block;
+  height:20px;
+  width:auto;
+  max-width:100%;
+}
+
 .footer-divider {
   margin:0 12px;
   color:#bdc8bc;

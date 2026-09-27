@@ -12,6 +12,9 @@ import httpx
 import appsettings
 import database
 import helper
+from log_setup import configure_logging
+
+configure_logging()
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +203,14 @@ def check_addresses(html: str, addresses: list[str], service: str, date: datetim
 
 
 def run_checks() -> dict:
+    try:
+        return _run_checks_locked()
+    except Exception:
+        logger.exception("Check run failed")
+        raise
+
+
+def _run_checks_locked() -> dict:
     start_hour = getattr(appsettings, 'CHECK_START_HOUR', 19)
     if type(start_hour) is not int or not 0 <= start_hour <= 23:
         raise ValueError("CHECK_START_HOUR mora biti ceo broj od 0 do 23")
@@ -255,7 +266,11 @@ def _run_checks(today: datetime.date) -> dict:
                             connection, check_date, str(tomorrow), service, matches)
                         report['checked'] = max(report['checked'], checked)
                         completed[service] = matches
+                        logger.info("Service check successful: service=%s target_date=%s addresses=%d%s",
+                                    service, tomorrow, len(matches),
+                                    " (no announcement)" if html is None else "")
                     except Exception as error:
+                        logger.exception("Service check failed: service=%s target_date=%s", service, tomorrow)
                         report['errors'].append(f"Provera ({service}) nije uspela: {error}")
             if not addresses or all(service in completed for service in ('struja', 'voda')):
                 # Persist analysis success BEFORE any email attempt. A CGI exit
@@ -281,6 +296,7 @@ def _run_checks(today: datetime.date) -> dict:
                 database.finish_notification_attempt(connection, notifications)
                 report['notified'].append(email)
             except Exception as error:
+                logger.exception("Notification failed for %s", email)
                 database.finish_notification_attempt(connection, notifications, str(error))
                 report['errors'].append(f"Slanje mejla za {email} nije uspelo: {error}")
         report['pending'] = len({(item['email'], item['address'])
