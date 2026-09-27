@@ -4,6 +4,6 @@ database.db
 *.check.lock
 __pycache__
 .venv
-
+usersdb.db
 public-service-info.log*
 static/contact.png
