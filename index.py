@@ -2,16 +2,14 @@
 # -*- coding: utf-8 -*-
 
 """
-pip install flask authlib flask-wtf httpx requests
+pip install flask flask-wtf httpx requests
 """
 
-import json
 import logging
 import os
 import sys
 import time
 
-from authlib.integrations.flask_client import OAuth
 from flask import (Flask, g, render_template, request, flash, redirect, make_response,
                    session, url_for as flask_url_for)
 from flask_wtf import CSRFProtect
@@ -19,6 +17,7 @@ from flask_wtf import CSRFProtect
 import appsettings
 import database
 import helper
+from oauth import ManualGoogleOAuth
 from log_setup import configure_logging
 
 configure_logging()
@@ -53,23 +52,7 @@ CLIENT_SECRETS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "
 if application.debug:
     google = None
 else:
-    with open(CLIENT_SECRETS_FILE) as f:
-        client_secrets = json.load(f)['web']
-
-    oauth = OAuth(application)
-    google = oauth.register(
-        name='google',
-        client_id=client_secrets['client_id'],
-        client_secret=client_secrets['client_secret'],
-        access_token_url=client_secrets['token_uri'],
-        access_token_params=None,
-        authorize_url=client_secrets['auth_uri'],
-        authorize_params=None,
-        api_base_url='https://www.googleapis.com/oauth2/v1/',
-        userinfo_endpoint='https://www.googleapis.com/oauth2/v3/userinfo',
-        client_kwargs={'scope': 'email'},
-        server_metadata_url='https://accounts.google.com/.well-known/openid-configuration'
-    )
+    google = ManualGoogleOAuth(CLIENT_SECRETS_FILE)
 
 
 '''
@@ -165,7 +148,7 @@ def oauth2callback():
         user_info = google.get('userinfo').json()
         email = user_info["email"]
         if (not isinstance(email, str) or not email.strip()
-                or user_info.get('verified_email') is not True):
+                or user_info.get('email_verified') is not True):
             raise ValueError("Google did not return a verified email")
         picture = user_info.get("picture")
     except Exception as error:

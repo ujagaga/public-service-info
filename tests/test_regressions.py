@@ -89,7 +89,7 @@ class RegressionTests(unittest.TestCase):
 
     def oauth(self, email, verified=True):
         google = Mock()
-        google.get.return_value.json.return_value = {'email': email, 'verified_email': verified}
+        google.get.return_value.json.return_value = {'email': email, 'email_verified': verified}
         with patch.object(index, 'google', google):
             return self.client.get('/oauth2callback')
 

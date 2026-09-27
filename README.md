@@ -109,7 +109,7 @@ The UI is in Serbian.
 ## Setup
 
 ```sh
-pip install flask authlib flask-wtf httpx
+pip install flask flask-wtf httpx requests
 cp appsettings.py.example appsettings.py   # then fill it in
 ```
 
