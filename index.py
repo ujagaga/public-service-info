@@ -286,10 +286,12 @@ def manage_users():
         key=lambda u: (u["email"].lower() == user["email"].lower(), u["email"].lower())
     )
 
-    return render_template('manage_users.html', user=user,
-                           unauthorized_users=unauthorized_users,
-                           authorized_users=authorized_users,
-                           title=appsettings.APP_TITLE, url_for=safe_url_for)
+    resp = make_response(render_template('manage_users.html', user=user,
+                                         unauthorized_users=unauthorized_users,
+                                         authorized_users=authorized_users,
+                                         title=appsettings.APP_TITLE, url_for=safe_url_for))
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return resp
 
 
 @application.route('/manage_users', methods=['POST'])
