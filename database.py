@@ -1,3 +1,4 @@
+import datetime
 import logging
 import json
 import os
@@ -54,6 +55,8 @@ def init_database(connection):
     columns = {row[1] for row in cursor.execute("PRAGMA table_info(users)")}
     if "signature" not in columns:
         cursor.execute("ALTER TABLE users ADD COLUMN signature TEXT")
+    if "subscribed_on" not in columns:
+        cursor.execute("ALTER TABLE users ADD COLUMN subscribed_on TEXT")
     if "logo" not in columns:
         # data: URI of a validated PNG/JPEG, shown on the page and inlined in notification mail.
         cursor.execute("ALTER TABLE users ADD COLUMN logo TEXT")
@@ -109,6 +112,21 @@ def init_database(connection):
         )
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS outbox_pending ON notification_outbox (check_date, status)")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS payments (
+            id INTEGER PRIMARY KEY,
+            email TEXT NOT NULL,
+            amount REAL NOT NULL,
+            paid_on TEXT NOT NULL
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS payment_reminders (
+            email TEXT NOT NULL,
+            due_on TEXT NOT NULL,
+            PRIMARY KEY (email, due_on)
+        )
+    """)
     if not table_exists(connection, "subscriptions"):
         # One row per (account, address, notified email); an account may watch many addresses.
         cursor.execute("""
@@ -237,9 +255,11 @@ def add_user(connection, email: str, token: str | None,
     return cursor.rowcount == 1
 
 
-def approve_user(connection, email: str, approval_token: str | None = None) -> bool:
-    sql = "UPDATE users SET authorized = 1, token = NULL, approval_token = NULL WHERE email = ? AND authorized = 0"
-    params = [email]
+def approve_user(connection, email: str, subscribed_on: datetime.date,
+                 approval_token: str | None = None) -> bool:
+    sql = ("UPDATE users SET authorized = 1, token = NULL, approval_token = NULL, subscribed_on = ? "
+           "WHERE email = ? AND authorized = 0")
+    params = [subscription_start(subscribed_on).isoformat(), email]
     if approval_token is not None:
         sql += " AND approval_token = ?"
         params.append(approval_token)
@@ -271,6 +291,8 @@ def record_deliveries(connection, email: str, address: str, services: list[str],
 def delete_user(connection, email: str):
     with connection:
         connection.execute("DELETE FROM subscriptions WHERE owner = ?;", (email,))
+        connection.execute("DELETE FROM payments WHERE email = ?;", (email,))
+        connection.execute("DELETE FROM payment_reminders WHERE email = ?;", (email,))
         connection.execute("DELETE FROM users WHERE email = ?;", (email,))
 
 
@@ -372,6 +394,86 @@ def update_user(connection, email: str, token: str = None, authorized: int = Non
         f"UPDATE users SET {assignments} WHERE email = ?;",
         (*fields.values(), email),
     )
+    connection.commit()
+
+
+def subscription_start(day: datetime.date) -> datetime.date:
+    """Days 29-31 move to the 1st of next month so every month has the due day."""
+    if day.day <= 28:
+        return day
+    return (day.replace(day=28) + datetime.timedelta(days=4)).replace(day=1)
+
+
+def add_months(day: datetime.date, months: int) -> datetime.date:
+    # Safe because subscription_start() keeps the day at 28 or below.
+    month = day.month - 1 + months
+    return day.replace(year=day.year + month // 12, month=month % 12 + 1)
+
+
+def set_subscribed_on(connection, email: str, day: datetime.date):
+    connection.execute("UPDATE users SET subscribed_on = ? WHERE email = ?",
+                       (subscription_start(day).isoformat(), email))
+    connection.commit()
+
+
+def add_payment(connection, email: str, amount: float, paid_on: datetime.date):
+    connection.execute("INSERT INTO payments (email, amount, paid_on) VALUES (?, ?, ?)",
+                       (email, amount, paid_on.isoformat()))
+    connection.commit()
+
+
+def update_payment(connection, payment_id: int, email: str, amount: float, paid_on: datetime.date):
+    connection.execute("UPDATE payments SET amount = ?, paid_on = ? WHERE id = ? AND email = ?",
+                       (amount, paid_on.isoformat(), payment_id, email))
+    connection.commit()
+
+
+def delete_payment(connection, payment_id: int, email: str):
+    connection.execute("DELETE FROM payments WHERE id = ? AND email = ?", (payment_id, email))
+    connection.commit()
+
+
+def get_payments(connection) -> dict:
+    """{email: [{'id', 'amount', 'paid_on'}, ...]}, newest first."""
+    result = {}
+    for row in connection.execute("SELECT id, email, amount, paid_on FROM payments ORDER BY paid_on DESC, id DESC"):
+        result.setdefault(row['email'], []).append({'id': row['id'], 'amount': row['amount'], 'paid_on': row['paid_on']})
+    return result
+
+
+def next_due(subscribed_on: str, payment_count: int) -> datetime.date:
+    """Each payment covers one month; the first is due a month after subscribing."""
+    return add_months(datetime.date.fromisoformat(subscribed_on), payment_count + 1)
+
+
+def missed_payments(subscribed_on: str, payment_count: int, today: datetime.date) -> int:
+    """How many due dates up to today are not covered by payments."""
+    missed = 0
+    while next_due(subscribed_on, payment_count + missed) <= today:
+        missed += 1
+    return missed
+
+
+def unreminded_dues(connection, today: datetime.date) -> list[tuple[str, datetime.date]]:
+    """Every unpaid due date up to today that admins were not yet emailed about."""
+    rows = connection.execute("""
+        SELECT u.email, u.subscribed_on, (SELECT COUNT(*) FROM payments p WHERE p.email = u.email) AS paid
+        FROM users u WHERE u.authorized = 1 AND u.subscribed_on IS NOT NULL ORDER BY u.email
+    """).fetchall()
+    reminded = {(row['email'], row['due_on']) for row in connection.execute("SELECT * FROM payment_reminders")}
+    dues = []
+    for row in rows:
+        months = row['paid'] + 1
+        while (due := add_months(datetime.date.fromisoformat(row['subscribed_on']), months)) <= today:
+            if (row['email'], due.isoformat()) not in reminded:
+                dues.append((row['email'], due))
+            months += 1
+    return dues
+
+
+def record_reminders(connection, dues: list[tuple[str, datetime.date]]):
+    connection.executemany("INSERT OR IGNORE INTO payment_reminders (email, due_on) VALUES (?, ?)",
+                           [(email, due.isoformat()) for email, due in dues])
     connection.commit()
 
 

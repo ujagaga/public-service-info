@@ -314,6 +314,11 @@ input:focus,textarea:focus {
   margin-left:4px;
 }
 
+.badge.overdue {
+  background:#f6e1dc;
+  color:#93402f;
+}
+
 .badge.pending {
   background:#fbf0d9;
   color:#865a17;

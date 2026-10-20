@@ -167,92 +167,19 @@ dialog .address-map {
   cursor:default;
 }
 
-.delivery {
+.billing-status {
   display:flex;
+  flex-wrap:wrap;
   align-items:center;
-  gap:13px;
-  border-top:1px solid var(--line);
-  padding-top:23px;
-  margin-top:29px;
-}
-
-.delivery>i {
-  color:#7a8c71;
-  font-size:20px;
-}
-
-.delivery span {
-  display:block;
-  font-size:11px;
-  color:var(--muted);
-  margin-bottom:5px;
-}
-
-.delivery strong {
-  font-size:13px;
-  font-weight:550;
-}
-
-.section-heading {
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  margin:37px 0 17px;
-  gap:15px;
-}
-
-.section-heading h2 {
+  gap:10px;
   margin:0;
-  font-size:17px;
-}
-
-.section-heading span,.source {
-  font-size:11px;
-  color:var(--muted);
-}
-
-.service-grid {
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:24px;
-}
-
-.service {
-  display:flex;
-  gap:18px;
-  padding:24px;
-}
-
-.service h3 {
-  margin:2px 0 7px;
-}
-
-.service p {
-  font-size:13px;
-  margin-bottom:15px;
-}
-
-.source {
-  display:block;
-}
-
-.footnote {
-  font-size:11px;
-  margin:19px 0 0;
-}
-
-.footnote i {
-  margin-right:6px;
 }
 
 @media(max-width:760px) {
-  .dashboard-grid,.service-grid {
+  .dashboard-grid {
     grid-template-columns:1fr;
   }
   .page-heading>.badge {
-    display:none;
-  }
-  .section-heading span {
     display:none;
   }
   .address-panel {

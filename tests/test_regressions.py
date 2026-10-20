@@ -193,6 +193,90 @@ class RegressionTests(unittest.TestCase):
         self.client.post('/manage_users', data={'email': settings.ADMIN_EMAIL, 'action': 'authorize'})
         self.assertEqual(database.get_user(self.db(), email=settings.ADMIN_EMAIL)['authorized'], 2)
 
+    def test_subscription_start_moves_late_days_to_next_month(self):
+        start = database.subscription_start
+        self.assertEqual(start(datetime.date(2026, 1, 28)), datetime.date(2026, 1, 28))
+        self.assertEqual(start(datetime.date(2026, 1, 29)), datetime.date(2026, 2, 1))
+        self.assertEqual(start(datetime.date(2026, 4, 30)), datetime.date(2026, 5, 1))
+        self.assertEqual(start(datetime.date(2026, 12, 31)), datetime.date(2027, 1, 1))
+        self.assertEqual(database.next_due('2026-11-15', 2), datetime.date(2027, 2, 15))
+        self.assertEqual(database.missed_payments('2026-01-10', 0, datetime.date(2026, 2, 9)), 0)
+        self.assertEqual(database.missed_payments('2026-01-10', 0, datetime.date(2026, 3, 10)), 2)
+        self.assertEqual(database.missed_payments('2026-01-10', 1, datetime.date(2026, 3, 10)), 1)
+
+    def test_approval_sets_subscription_date_and_admin_records_payments(self):
+        email = self.user()
+        database.update_user(self.db(), settings.ADMIN_EMAIL, token='admin-login')
+        self.client.set_cookie('token', 'admin-login')
+        with patch.object(index, 'today', return_value=datetime.date(2026, 1, 30)):
+            self.client.post('/manage_users', data={'email': email, 'action': 'authorize'})
+        self.assertEqual(database.get_user(self.db(), email=email)['subscribed_on'], '2026-02-01')
+        self.client.post('/manage_users', data={'email': email, 'action': 'set_subscribed_on', 'subscribed_on': '31.03.2026'})
+        self.assertEqual(database.get_user(self.db(), email=email)['subscribed_on'], '2026-04-01')
+        self.client.post('/manage_users', data={'email': email, 'action': 'add_payment', 'amount': '1500,50', 'paid_on': '2.5.2026'})
+        for bad in ({'amount': '0', 'paid_on': '02.05.2026'}, {'amount': 'x', 'paid_on': '02.05.2026'}, {'amount': '10', 'paid_on': ''}, {'amount': '10', 'paid_on': '2026-05-02'}):
+            self.client.post('/manage_users', data={'email': email, 'action': 'add_payment', **bad})
+        [payment] = database.get_payments(self.db())[email]
+        self.assertEqual((payment['amount'], payment['paid_on']), (1500.5, '2026-05-02'))
+        html = self.client.get('/manage_users').get_data(as_text=True)
+        self.assertIn('od 01.04.2026 · sledeća uplata 01.06.2026', html)
+        self.assertIn('value="1500.5"', html)
+        self.assertIn('value="02.05.2026"', html)
+        self.assertNotIn('type="date" name=', html)
+        edit = {'email': email, 'payment_id': payment['id'], 'action': 'update_payment', 'amount': '2000', 'paid_on': '03.05.2026'}
+        self.client.post('/manage_users', data=dict(edit, email='admin2@example.com'))
+        self.client.post('/manage_users', data=dict(edit, amount='-1'))
+        self.assertEqual(database.get_payments(self.db())[email][0]['amount'], 1500.5)
+        self.client.post('/manage_users', data=edit)
+        self.assertEqual(database.get_payments(self.db())[email][0], {'id': payment['id'], 'amount': 2000, 'paid_on': '2026-05-03'})
+        self.client.post('/manage_users', data={'email': 'other@example.com', 'payment_id': payment['id'], 'action': 'delete_payment'})
+        self.assertIn(email, database.get_payments(self.db()))
+        self.client.post('/manage_users', data={'email': email, 'payment_id': payment['id'], 'action': 'delete_payment'})
+        self.assertEqual(database.get_payments(self.db()), {})
+        database.add_payment(self.db(), email, 1, datetime.date(2026, 5, 1))
+        database.delete_user(self.db(), email)
+        self.assertEqual(database.get_payments(self.db()), {})
+
+    def test_home_shows_subscription_status_to_regular_users_only(self):
+        email = self.user(authorized=1, token='login')
+        self.client.set_cookie('token', 'login')
+        self.assertIn('Datum pretplate još nije postavljen', self.client.get('/').get_data(as_text=True))
+        database.set_subscribed_on(self.db(), email, datetime.date(2026, 1, 10))
+        database.add_payment(self.db(), email, 1000, datetime.date(2026, 2, 10))
+        with patch.object(index, 'today', return_value=datetime.date(2026, 4, 10)):
+            html = self.client.get('/').get_data(as_text=True)
+        self.assertIn('Aktivna od 10.01.2026 · sledeća uplata 10.03.2026', html)
+        self.assertIn('Dospelo · neplaćeno: 2', html)
+        self.assertNotIn('Šta pratimo za vas', html)
+        database.update_user(self.db(), email, authorized=2)
+        self.assertNotIn('Pretplata', self.client.get('/').get_data(as_text=True))
+
+    def test_payment_due_reminder_sent_once_per_due_date_and_retried_on_failure(self):
+        email = self.user(authorized=1)
+        database.set_subscription(self.db(), email, 'Test 12', [])
+        database.set_subscribed_on(self.db(), email, datetime.date(2026, 1, 10))
+        self.user(email='admin2@example.com', authorized=2)
+        query = {'token': settings.TRIGGER_TOKEN}
+        with patch.object(index, 'today', return_value=datetime.date(2026, 3, 10)):
+            self.mail.side_effect = RuntimeError('SMTP down')
+            self.client.get('/run_check', query_string=query)
+            self.mail.reset_mock(side_effect=True)
+            self.client.get('/run_check', query_string=query)
+            self.assertEqual({c.kwargs['recipient'] for c in self.mail.call_args_list}, {settings.ADMIN_EMAIL, 'admin2@example.com'})
+            body = self.mail.call_args.kwargs['body']
+            self.assertIn(f'{email}: 10.02.2026', body)
+            self.assertIn(f'{email}: 10.03.2026', body)
+            self.mail.reset_mock()
+            self.client.get('/run_check', query_string=query)
+            self.mail.assert_not_called()
+        database.add_payment(self.db(), email, 1000, datetime.date(2026, 3, 11))
+        database.add_payment(self.db(), email, 1000, datetime.date(2026, 3, 11))
+        with patch.object(index, 'today', return_value=datetime.date(2026, 4, 10)):
+            self.client.get('/run_check', query_string=query)
+        self.assertEqual(self.mail.call_count, 2)
+        self.assertNotIn('03.2026', self.mail.call_args.kwargs['body'])
+        self.assertIn(f'{email}: 10.04.2026', self.mail.call_args.kwargs['body'])
+
     def test_login_cookie_and_logout_revocation(self):
         email = self.user(authorized=1)
         response = self.oauth(email)

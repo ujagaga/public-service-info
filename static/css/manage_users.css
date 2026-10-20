@@ -57,6 +57,94 @@
   color:var(--muted);
 }
 
+.billing {
+  margin-top:12px;
+  font-size:12px;
+}
+
+.billing summary {
+  cursor:pointer;
+  color:var(--green);
+}
+
+.billing-form {
+  display:flex;
+  flex-wrap:wrap;
+  align-items:flex-end;
+  gap:10px;
+  margin-top:12px;
+}
+
+.billing-form label {
+  margin:0;
+  font-size:11px;
+}
+
+.billing-form input {
+  display:block;
+  margin-top:4px;
+  padding:8px 10px;
+  border:1px solid #cdd6cc;
+  border-radius:8px;
+  font:inherit;
+  font-weight:400;
+}
+
+.billing-form button {
+  font-size:11px;
+  padding:10px 12px;
+}
+
+.date-field {
+  position:relative;
+  display:flex;
+  align-items:flex-end;
+  gap:4px;
+}
+
+.date-field input[type=text] {
+  width:110px;
+}
+
+.date-picker-button {
+  border:1px solid #cdd6cc;
+  border-radius:8px;
+  background:white;
+  color:var(--green);
+  width:34px;
+  height:34px;
+}
+
+.date-picker {
+  position:absolute;
+  left:0;
+  bottom:0;
+  width:1px;
+  height:1px;
+  opacity:0;
+  pointer-events:none;
+}
+
+.payments {
+  margin-top:12px;
+  border-top:1px solid var(--line);
+}
+
+.payment-row {
+  align-items:center;
+  margin-top:10px;
+}
+
+.payment-row input[type=number] {
+  width:110px;
+}
+
+.payment-row button {
+  width:34px;
+  min-height:34px;
+  padding:0;
+}
+
 .self-label {
   color:var(--muted);
   font-weight:400;

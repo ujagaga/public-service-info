@@ -6,12 +6,14 @@ pip install flask flask-wtf httpx requests
 """
 
 import base64
+import datetime
 import hmac
 import logging
 import os
 import re
 import sys
 import time
+from zoneinfo import ZoneInfo
 
 from flask import (Flask, g, render_template, request, flash, redirect, make_response,
                    session, url_for as flask_url_for)
@@ -84,8 +86,12 @@ def set_login_cookie(response, token):
                         httponly=True, secure=request.is_secure, samesite='Lax')
 
 
+def today():
+    return datetime.datetime.now(ZoneInfo("Europe/Belgrade")).date()
+
+
 def approve_and_notify(email, approval_token=None):
-    if not database.approve_user(g.db, email, approval_token):
+    if not database.approve_user(g.db, email, today(), approval_token):
         return False
     try:
         helper.send_email(
@@ -181,6 +187,18 @@ def oauth2callback():
     return response
 
 
+def billing(user):
+    """Subscription status for regular users; admins are not billed."""
+    if user["authorized"] != 1:
+        return None
+    if not user["subscribed_on"]:
+        return {'start': None}
+    paid = len(database.get_payments(g.db).get(user["email"], []))
+    return {'start': datetime.date.fromisoformat(user["subscribed_on"]),
+            'next_due': database.next_due(user["subscribed_on"], paid),
+            'missed': database.missed_payments(user["subscribed_on"], paid, today())}
+
+
 @application.route('/', methods=['GET'])
 def index():
     user = current_user()
@@ -191,11 +209,11 @@ def index():
 
     resp = make_response(render_template(
         'home.html',
-        check_time=getattr(appsettings, 'CHECK_START_HOUR', 19),
         user=user,
         admin=user["authorized"] > 1,
         unauthorized_users=unauthorized_users,
         subscriptions=database.get_subscriptions(g.db, user["email"]),
+        billing=billing(user),
         title=appsettings.APP_TITLE,
         url_for=safe_url_for
     ))
@@ -325,10 +343,13 @@ def manage_users():
         key=lambda u: (u["email"].lower() == user["email"].lower(), u["email"].lower())
     )
 
+    payments = database.get_payments(g.db)
     resp = make_response(render_template('manage_users.html', user=user,
                                          unauthorized_users=unauthorized_users,
                                          authorized_users=authorized_users,
                                          subscriptions=database.get_subscriptions(g.db),
+                                         payments=payments, today=today(), next_due=database.next_due,
+                                         missed_payments=database.missed_payments,
                                          title=appsettings.APP_TITLE, url_for=safe_url_for))
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     return resp
@@ -354,8 +375,51 @@ def manage_users_post():
             database.update_user(connection=g.db, email=email, authorized=2)
     elif action == 'remove':
         database.delete_user(connection=g.db, email=email)
+    elif action == 'set_subscribed_on':
+        try:
+            database.set_subscribed_on(g.db, email, parse_date(request.form.get('subscribed_on', '')))
+        except ValueError:
+            flash("Neispravan datum pretplate.")
+    elif action in ('add_payment', 'update_payment'):
+        try:
+            amount = float(request.form.get('amount', '').replace(',', '.'))
+            paid_on = parse_date(request.form.get('paid_on', ''))
+        except ValueError:
+            amount = 0
+        if amount <= 0:
+            flash("Unesite iznos i datum uplate.")
+        elif action == 'add_payment':
+            database.add_payment(g.db, email, amount, paid_on)
+        else:
+            database.update_payment(g.db, request.form.get('payment_id', type=int), email, amount, paid_on)
+    elif action == 'delete_payment':
+        database.delete_payment(g.db, request.form.get('payment_id', type=int), email)
 
     return redirect(safe_url_for('manage_users'))
+
+
+def parse_date(value):
+    """Admin forms always use dd.mm.yyyy, independent of browser locale."""
+    return datetime.datetime.strptime(value.strip(), '%d.%m.%Y').date()
+
+
+def send_payment_reminders():
+    dues = database.unreminded_dues(g.db, today())
+    if not dues:
+        return
+    body = ("Dospele uplate pretplate:\n\n"
+            + "\n".join(f"{email}: {due:%d.%m.%Y}" for email, due in dues)
+            + f"\n\nUpravljaj ovde: {request.host_url.rstrip('/')}{safe_url_for('manage_users')}")
+    sent = False
+    for admin in database.get_user(connection=g.db, authorized=2):
+        try:
+            helper.send_email(recipient=admin["email"], subject=f"{appsettings.APP_TITLE}: dospele uplate", body=body)
+            sent = True
+        except Exception as error:
+            logger.exception(f"Could not send payment reminder to {admin['email']}: {error}")
+    # Unsent reminders are retried on the next /run_check call.
+    if sent:
+        database.record_reminders(g.db, dues)
 
 
 @application.route('/run_check', methods=['GET'])
@@ -363,6 +427,12 @@ def manage_users_post():
 def run_check():
     if request.args.get('token') != appsettings.TRIGGER_TOKEN:
         return "Forbidden", 403
+
+    # Independent of outage checks: a failure here must not block them, and vice versa.
+    try:
+        send_payment_reminders()
+    except Exception as error:
+        logger.exception(f"Payment reminders failed: {error}")
 
     try:
         # Imported here so the Gemini client is only created when a check actually runs.

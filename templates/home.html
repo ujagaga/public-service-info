@@ -72,34 +72,20 @@
         </div>
         <button type="submit" form="signature-form" class="button signature-save"><i class="fa-solid fa-check" aria-hidden="true"></i> Sačuvaj potpis</button>
     </section>
-</div>
-<div class="section-heading">
-    <h2>Šta pratimo za vas</h2>
-</div>
-<div class="service-grid">
-    <article class="panel service">
-        <span class="icon-tile power"><i class="fa-solid fa-bolt" aria-hidden="true"></i></span>
-        <div>
-            <h3>Električna energija</h3>
-            <p>Najave planiranih prekida u snabdevanju strujom.</p>
-            <span class="source">Izvor: Elektrodistribucija Srbije</span>
+    {% if billing %}
+    <section class="panel address-panel">
+        <div class="panel-heading">
+            <h2>Pretplata</h2>
         </div>
-    </article>
-    <article class="panel service">
-        <span class="icon-tile water"><i class="fa-solid fa-droplet" aria-hidden="true"></i></span>
-        <div>
-            <h3>Vodosnabdevanje</h3>
-            <p>Najave radova i planiranih prekida u snabdevanju vodom.</p>
-            <span class="source">Izvor: JKP Vodovod i kanalizacija Novi Sad</span>
-        </div>
-    </article>
+        {% if billing.start %}
+        <p class="billing-status">Aktivna od {{ billing.start.strftime('%d.%m.%Y') }} · sledeća uplata {{ billing.next_due.strftime('%d.%m.%Y') }}
+            {% if billing.missed %}<span class="badge overdue">Dospelo · neplaćeno: {{ billing.missed }}</span>{% else %}<span class="badge">Uredno</span>{% endif %}</p>
+        {% else %}
+        <p class="billing-status">Datum pretplate još nije postavljen.</p>
+        {% endif %}
+    </section>
+    {% endif %}
 </div>
-<p class="footnote">
-    <i class="fa-solid fa-circle-info" aria-hidden="true"></i> Obaveštenja se zasnivaju na objavljenim najavama. Iznenadni kvarovi nisu obuhvaćeni.
-</p>
-<p class="footnote">
-    <i class="fa-solid fa-circle-info" aria-hidden="true"></i> Provera se vrši svakog dana u {{ check_time }}h, tako da ćete biti obavešteni uveče za sledeće jutro.
-</p>
 <dialog id="mapDialog" data-city="{{ address_city }}" aria-labelledby="map-dialog-title">
     <div class="dialog-heading">
         <h2 id="map-dialog-title" class="wrap"></h2>
