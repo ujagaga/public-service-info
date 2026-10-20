@@ -1,6 +1,20 @@
 (() => {
   'use strict';
 
+  // Shared with the saved-address map popup on the home page.
+  window.addressMapQuery = (address, city) => {
+    address = address.trim();
+    if (!address) return city;
+    // Previously saved addresses can already include the city in either script.
+    const normalize = value => value.toLocaleLowerCase('sr').replace(/\s+/g, ' ').trim();
+    const cityNames = [normalize(city)];
+    if (cityNames[0] === 'novi sad') cityNames.push('нови сад');
+    if (cityNames[0] === 'нови сад') cityNames.push('novi sad');
+    const hasCity = address.split(',').some(part =>
+      cityNames.includes(normalize(part).replace(/^\d{5}\s+/, '')));
+    return hasCity ? address : `${address}, ${city}`;
+  };
+
   function initPicker(root) {
     const input = root.querySelector('[data-address-input]');
     const city = root.querySelector('[data-address-city]').textContent.trim();
@@ -9,19 +23,6 @@
     const results = root.querySelector('[data-map-results]');
     const frame = root.querySelector('[data-map-frame]');
     const caption = root.querySelector('[data-map-address]');
-
-    function mapQuery() {
-      const address = input.value.trim();
-      if (!address) return city;
-      // Previously saved addresses can already include the city in either script.
-      const normalize = value => value.toLocaleLowerCase('sr').replace(/\s+/g, ' ').trim();
-      const cityNames = [normalize(city)];
-      if (cityNames[0] === 'novi sad') cityNames.push('нови сад');
-      if (cityNames[0] === 'нови сад') cityNames.push('novi sad');
-      const hasCity = address.split(',').some(part =>
-        cityNames.includes(normalize(part).replace(/^\d{5}\s+/, '')));
-      return hasCity ? address : `${address}, ${city}`;
-    }
 
     function reset() {
       // Also runs when the admin editor switches between users or closes.
@@ -40,7 +41,7 @@
         status.dataset.state = 'error';
         return;
       }
-      const address = mapQuery();
+      const address = window.addressMapQuery(input.value, city);
       const params = new URLSearchParams({ q: address, output: 'embed', hl: 'sr' });
       frame.src = `https://maps.google.com/maps?${params}`;
       frame.title = `Google mapa: ${address}`;

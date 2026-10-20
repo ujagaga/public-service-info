@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="eyebrow">Obaveštenja</div>
+<section class="panel">
+    {% if done %}
+    <h1>Odjavljeni ste.</h1>
+    <p class="wrap">Na {{ email }} više nećemo slati obaveštenja za adresu {{ address }}.</p>
+    {% else %}
+    <h1>Odjava sa obaveštenja</h1>
+    <p class="wrap">Prestati sa slanjem obaveštenja za adresu {{ address }} na {{ email }}?</p>
+    <form method="post" action="{{ url_for('unsubscribe') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="email" value="{{ email }}">
+        <input type="hidden" name="address" value="{{ address }}">
+        <input type="hidden" name="token" value="{{ token }}">
+        <button type="submit" class="button">Odjavi me</button>
+    </form>
+    {% endif %}
+</section>
+{% endblock %}

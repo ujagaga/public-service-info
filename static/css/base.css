@@ -231,7 +231,7 @@ label {
   margin-bottom:9px;
 }
 
-input[type=text] {
+input[type=text],textarea {
   width:100%;
   min-width:0;
   padding:14px 16px;
@@ -241,7 +241,7 @@ input[type=text] {
   color:var(--ink);
 }
 
-input:focus {
+input:focus,textarea:focus {
   border-color:var(--green);
 }
 

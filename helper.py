@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import logging
 import secrets
 import smtplib
@@ -6,6 +8,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 import time
+from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -18,6 +21,11 @@ logger = logging.getLogger(__name__)
 
 def generate_token():
     return secrets.token_urlsafe(32)
+
+
+def unsubscribe_token(email: str, address: str) -> str:
+    message = f"{email}\n{address}".encode()
+    return hmac.new(appsettings.APP_SECRET_KEY.encode(), message, hashlib.sha256).hexdigest()
 
 
 def fetch_html(url: str, timeout: float = 10.0) -> str:
@@ -48,12 +56,34 @@ def time_ago(last_seen) -> str:
     return "more than a year ago"
 
 
-def send_email(recipient, subject, body):
-    msg = MIMEMultipart()
+def image_subtype(data: bytes) -> str | None:
+    """'png' or 'jpeg' judged by file content, not by name or browser-supplied type."""
+    if data.startswith(b'\x89PNG\r\n\x1a\n'):
+        return 'png'
+    if data.startswith(b'\xff\xd8\xff'):
+        return 'jpeg'
+    return None
+
+
+def send_email(recipient, subject, body, html=None, images=()):
+    """images: (content_id, bytes, subtype) referenced from html as cid:content_id."""
+    if html:
+        msg = MIMEMultipart('related')
+        alternative = MIMEMultipart('alternative')
+        alternative.attach(MIMEText(body, 'plain'))
+        alternative.attach(MIMEText(html, 'html'))
+        msg.attach(alternative)
+        for content_id, data, subtype in images:
+            image = MIMEImage(data, _subtype=subtype)
+            image.add_header('Content-ID', f'<{content_id}>')
+            image.add_header('Content-Disposition', 'inline')
+            msg.attach(image)
+    else:
+        msg = MIMEMultipart()
+        msg.attach(MIMEText(body, 'plain'))
     msg['From'] = appsettings.SMTP_USER
     msg['To'] = recipient
     msg['Subject'] = subject
-    msg.attach(MIMEText(body, 'plain'))
 
     logger.info(f"Sending email to: {recipient}")
     with smtplib.SMTP(appsettings.SMTP_SERVER, appsettings.SMTP_PORT, timeout=30) as server:

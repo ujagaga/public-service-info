@@ -3,8 +3,10 @@
 A small Flask app that warns Novi Sad residents by email when power or water
 outages are announced for their address.
 
-Users sign in with Google, save their street address, and the app mails them
-whenever an announced outage for the next day covers that address.
+Users sign in with Google and wait for admin approval. Once approved, they add
+one or more street addresses (e.g. building managers), each with its own list of
+emails to notify. The app mails those recipients whenever an announced outage
+for the next day covers that address.
 
 ## How it works
 
@@ -19,10 +21,10 @@ whenever an announced outage for the next day covers that address.
    It sends the full address list and announcement to Gemini once per available
    service (power/water), requesting JSON with a result for every address. The
    model handles Cyrillic/Latin matching and house-number ranges in bulk.
-4. After validating the results, the app fetches the current approved users and
-   matches their addresses to affected addresses. Each affected user gets one
-   email combining the matching services and outage times. Users sharing an
-   address reuse the same result; their emails are not sent to Gemini.
+4. After validating the results, the app fetches the current recipients of approved
+   accounts' addresses and matches them to affected addresses. Each affected
+   recipient gets one email per address combining the matching services and outage
+   times. Accounts sharing an address reuse the same result; emails are not sent to Gemini.
 5. Each successful service check and its pending notifications are saved together
    in SQLite before sending email. When both service checks succeed, `checks`
    records the day's analysis as complete, even if SMTP fails. Subsequent URL

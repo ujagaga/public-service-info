@@ -6,27 +6,71 @@
 <div class="page-heading">
     <div>
         <h1>Budite spremni.<br>Pre nego što nestane.</h1>
-        <p>Najave isključenja struje i vode za vašu adresu, na jednom mestu.</p>
+        <p>Najave isključenja struje i vode za vaše adrese, na jednom mestu.</p>
     </div>
 </div>
 <div class="dashboard-grid">
+    {% for address, emails in subscriptions.items() %}
+    <section class="panel address-panel">
+        <form method="post" action="{{ url_for('index') }}" class="address-card">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="address" value="{{ address }}">
+            <div class="address-main">
+                <div class="panel-heading">
+                    <button type="button" class="icon-tile map-button" data-map-address="{{ address }}" aria-label="Prikaži na mapi: {{ address }}"><i class="fa-solid fa-location-dot" aria-hidden="true"></i></button>
+                    <h2 class="wrap">{{ address }}</h2>
+                </div>
+                <div class="email-row">
+                    <span class="icon-tile"><i class="fa-solid fa-envelope" aria-hidden="true"></i></span>
+                    <textarea name="emails" rows="3" required aria-label="Email adrese za obaveštenja: {{ address }}">{{ emails|join('\n') }}</textarea>
+                </div>
+            </div>
+            <div class="address-actions">
+                <button type="submit" class="button secondary" data-save aria-label="Sačuvaj: {{ address }}" title="Sačuvaj"><i class="fa-solid fa-check" aria-hidden="true"></i></button>
+                <button type="submit" name="action" value="remove" class="button secondary" formnovalidate aria-label="Ukloni adresu: {{ address }}" title="Ukloni adresu"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>
+            </div>
+        </form>
+    </section>
+    {% endfor %}
     <section class="panel address-panel">
         <div class="panel-heading">
-            <span class="icon-tile"><i class="fa-solid fa-location-dot" aria-hidden="true"></i></span>
             <div>
-                <h2>Moja adresa</h2>
-                <p>Gde želite da pratimo najave?</p>
+                <h2>{{ 'Dodaj adresu' if subscriptions else 'Dodajte prvu adresu' }}</h2>
+                <p>Gde želite da pratimo najave i koga da obavestimo?</p>
             </div>
         </div>
         <form method="post" action="{{ url_for('index') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{{ address_picker(user.address) }}
-            <button type="submit" class="button"><i class="fa-solid fa-check" aria-hidden="true"></i> Sačuvaj adresu</button>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{{ address_picker() }}
+            <label for="new-emails">Email adrese za obaveštenja</label>
+            <textarea name="emails" id="new-emails" rows="3" required aria-describedby="new-emails-hint">{{ user.email }}</textarea>
+            <p class="hint" id="new-emails-hint">Jedna adresa po redu, ili odvojene zarezom.</p>
+            <button type="submit" class="button"><i class="fa-solid fa-check" aria-hidden="true"></i> Dodaj adresu</button>
         </form>
-        <div class="delivery"><i class="fa-solid fa-envelope" aria-hidden="true"></i>
+    </section>
+    <section class="panel address-panel">
+        <div class="panel-heading">
             <div>
-                <span>Obaveštenja stižu na</span><strong class="wrap">{{ user.email }}</strong>
+                <h2>Potpis</h2>
+                <p>Dodaje se na kraj svakog obaveštenja koje šaljemo vašim primaocima.</p>
             </div>
         </div>
+        <div class="signature-row">
+            <form method="post" action="{{ url_for('index') }}" enctype="multipart/form-data" class="logo-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <label class="logo-frame" title="{{ 'Promeni logo' if user.logo else 'Dodaj logo' }}">
+                    {% if user.logo %}<img src="{{ user.logo }}" alt="Logo">{% else %}<i class="fa-solid fa-image" aria-hidden="true"></i>{% endif %}
+                    <input type="file" name="logo" accept=".png,.jpg,.jpeg,image/png,image/jpeg" class="logo-input" aria-label="{{ 'Promeni logo' if user.logo else 'Dodaj logo' }} (PNG ili JPG, do 500 KB)">
+                </label>
+                <noscript><button type="submit" class="button secondary">Otpremi logo</button></noscript>
+                {% if user.logo %}<button type="submit" name="action" value="logo_delete" class="button secondary logo-delete" aria-label="Ukloni logo" title="Ukloni logo"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>{% endif %}
+            </form>
+            <form method="post" action="{{ url_for('index') }}" class="signature-form" id="signature-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="signature">
+                <textarea name="signature" rows="4" maxlength="1000" aria-label="Potpis" placeholder="npr. Upravnik zgrade, Petar Petrović, 060 123 4567">{{ user.signature or '' }}</textarea>
+            </form>
+        </div>
+        <button type="submit" form="signature-form" class="button signature-save"><i class="fa-solid fa-check" aria-hidden="true"></i> Sačuvaj potpis</button>
     </section>
 </div>
 <div class="section-heading">
@@ -56,4 +100,12 @@
 <p class="footnote">
     <i class="fa-solid fa-circle-info" aria-hidden="true"></i> Provera se vrši svakog dana u {{ check_time }}h, tako da ćete biti obavešteni uveče za sledeće jutro.
 </p>
+<dialog id="mapDialog" data-city="{{ address_city }}" aria-labelledby="map-dialog-title">
+    <div class="dialog-heading">
+        <h2 id="map-dialog-title" class="wrap"></h2>
+        <button type="button" class="close-dialog" aria-label="Zatvori">×</button>
+    </div>
+    <iframe class="address-map" title="Google mapa" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
+</dialog>
 {% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/home.js') }}"></script>{% endblock %}

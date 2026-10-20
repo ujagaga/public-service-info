@@ -1,10 +1,12 @@
+import base64
 import datetime
+from html import escape
 import fcntl
 import json
 import logging
 import re
 from html.parser import HTMLParser
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urlencode, urljoin, urlsplit
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -202,15 +204,15 @@ def check_addresses(html: str, addresses: list[str], service: str, date: datetim
     return matched
 
 
-def run_checks() -> dict:
+def run_checks(unsubscribe_url: str | None = None) -> dict:
     try:
-        return _run_checks_locked()
+        return _run_checks_locked(unsubscribe_url)
     except Exception:
         logger.exception("Check run failed")
         raise
 
 
-def _run_checks_locked() -> dict:
+def _run_checks_locked(unsubscribe_url: str | None) -> dict:
     start_hour = getattr(appsettings, 'CHECK_START_HOUR', 19)
     if type(start_hour) is not int or not 0 <= start_hour <= 23:
         raise ValueError("CHECK_START_HOUR mora biti ceo broj od 0 do 23")
@@ -230,12 +232,12 @@ def _run_checks_locked() -> dict:
             raise RuntimeError("Provera je vec u toku") from None
         try:
             database.setup_initial_db()
-            return _run_checks(now.date())
+            return _run_checks(now.date(), unsubscribe_url)
         finally:
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
-def _run_checks(today: datetime.date) -> dict:
+def _run_checks(today: datetime.date, unsubscribe_url: str | None = None) -> dict:
     tomorrow = today + datetime.timedelta(days=1)
     check_date = str(today)
     report = {"date": f"{tomorrow:%d.%m.%Y}", "checked": 0, "notified": [], "errors": [],
@@ -287,11 +289,38 @@ def _run_checks(today: datetime.date) -> dict:
             reports = [f"{item['service'].capitalize()}: {item['details']}" for item in notifications]
             body = (f"Za {tomorrow:%d.%m.%Y} na adresi {address} najavljeni su prekidi:\n\n"
                     + "\n".join(reports))
+            html_body = f'<div style="white-space:pre-wrap">{escape(body)}</div>'
+            images = []
+            for signature in database.get_signatures(connection, email, address):
+                body += "\n\n--"
+                logo_cell = ''
+                if signature['signature']:
+                    body += f"\n{signature['signature']}"
+                if signature['logo']:
+                    header, data = signature['logo'].split(',', 1)
+                    content_id = f"logo{len(images)}"
+                    images.append((content_id, base64.b64decode(data), header.removeprefix('data:image/').removesuffix(';base64')))
+                    logo_cell = (f'<td style="vertical-align:top;padding-right:16px">'
+                                 f'<img src="cid:{content_id}" alt="" style="max-height:80px;max-width:160px"></td>')
+                # Table layout: email clients do not reliably support flexbox for logo-beside-text.
+                html_body += (f'<table role="presentation" style="margin-top:20px;border-top:1px solid #ddd;padding-top:12px">'
+                              f'<tr>{logo_cell}<td style="vertical-align:top;white-space:pre-wrap">'
+                              f'{escape(signature["signature"] or "")}</td></tr></table>')
+            if unsubscribe_url:
+                query = urlencode({'email': email, 'address': address,
+                                   'token': helper.unsubscribe_token(email, address)})
+                body += f"\n\nKliknite ovde da se odjavite sa obaveštenja za ovu adresu: {unsubscribe_url}?{query}"
+                html_body += (f'<p style="margin-top:24px"><a href="{escape(f"{unsubscribe_url}?{query}")}" '
+                              'style="display:inline-block;padding:10px 16px;border-radius:8px;background:#244b40;'
+                              'color:#ffffff;font-size:13px;font-weight:600;text-decoration:none">'
+                              'Kliknite ovde da se odjavite sa obaveštenja za ovu adresu</a></p>')
             try:
                 helper.send_email(
                     recipient=email,
                     subject=f"{appsettings.APP_TITLE}: najavljeni prekidi za {tomorrow:%d.%m.%Y}",
                     body=body,
+                    html=f'<div style="font-family:sans-serif">{html_body}</div>',
+                    images=images,
                 )
                 database.finish_notification_attempt(connection, notifications)
                 report['notified'].append(email)

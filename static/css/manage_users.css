@@ -74,65 +74,6 @@
   padding:10px 12px;
 }
 
-.edit-address-link {
-  border:0;
-  background:transparent;
-  color:var(--green);
-  font-size:12px;
-  text-decoration:underline;
-  text-underline-offset:3px;
-  padding:8px;
-}
-
-.edit-address-link:hover {
-  background:#edf2e9;
-  border-radius:6px;
-}
-
-dialog {
-  border:1px solid var(--line);
-  border-radius:16px;
-  width:min(520px,calc(100% - 32px));
-  padding:28px;
-  color:var(--ink);
-  box-shadow:0 25px 100px #182c3433;
-}
-
-dialog::backdrop {
-  background:#152e3266;
-}
-
-.dialog-heading {
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  gap:20px;
-}
-
-.dialog-heading h2 {
-  margin:0;
-}
-
-.close-dialog:not(.button) {
-  border:0;
-  background:transparent;
-  font-size:28px;
-  color:var(--muted);
-  width:44px;
-  height:44px;
-}
-
-dialog p {
-  font-size:13px;
-}
-
-.dialog-actions {
-  display:flex;
-  justify-content:flex-end;
-  gap:10px;
-  margin-top:25px;
-}
-
 @media(max-width:900px) {
   .user-card {
     align-items:flex-start;

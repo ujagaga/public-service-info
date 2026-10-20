@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/solid.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/brands.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
-  {% if request.endpoint in ['index', 'complete_registration', 'manage_users'] %}
+  {% if request.endpoint == 'index' %}
   <link rel="stylesheet" href="{{ url_for('static', filename='css/address_picker.css') }}">
   {% endif %}
   {% block styles %}{% endblock %}
@@ -21,7 +21,6 @@
   <a class="brand" href="{{ url_for('index') }}"><span class="brand-mark"><i class="fa-solid fa-bell" aria-hidden="true"></i></span><span>Komšijski info<small>STRUJA · VODA · {{ address_city | upper }}</small></span></a>
   <nav aria-label="Glavna navigacija">
   {% if user is defined and user %}
-    <a class="nav-link {% if request.endpoint == 'index' %}selected{% endif %}" href="{{ url_for('index') }}">Moja adresa</a>
     {% if user.authorized > 1 %}<a class="nav-link {% if request.endpoint == 'manage_users' %}selected{% endif %}" href="{{ url_for('manage_users') }}">Korisnici {% if unauthorized_users %}<span class="count">{{ unauthorized_users|length }}</span>{% endif %}</a>{% endif %}
     <a class="nav-link" href="{{ url_for('logout') }}">Odjava <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i></a>
   {% else %}<span class="location"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> Novi Sad</span>{% endif %}
@@ -33,7 +32,7 @@
 </main>
 <footer class="site-footer"><span>Komšijski info <span class="footer-divider">/</span> Manje iznenađenja. Lakše planiranje.</span><span class="footer-contact">Kontakt: <img src="{{ url_for('static', filename='contact.png') }}" alt="Email adresa administratora za kontakt" height="20"></span></footer>
 <script src="{{ url_for('static', filename='js/common.js') }}"></script>
-{% if request.endpoint in ['index', 'complete_registration', 'manage_users'] %}
+{% if request.endpoint == 'index' %}
 <script src="{{ url_for('static', filename='js/address_picker.js') }}"></script>
 {% endif %}
 {% block scripts %}{% endblock %}

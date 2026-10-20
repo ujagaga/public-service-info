@@ -1,5 +1,6 @@
 """Offline regression tests; isolated settings, temporary SQLite, mocked OAuth/SMTP/HTTP."""
 import datetime
+import io
 import json
 import multiprocessing
 import os
@@ -8,10 +9,10 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
-import time
 import types
 import unittest
 from unittest.mock import Mock, patch
+from urllib.parse import parse_qsl
 from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,7 +32,7 @@ index.application.config.update(TESTING=True, DEBUG=False, WTF_CSRF_ENABLED=Fals
 
 
 def hold_check_lock(started, release):
-    def held_run(today):
+    def held_run(today, unsubscribe_url):
         started.set()
         release.wait(10)
         return {}
@@ -41,6 +42,7 @@ def hold_check_lock(started, release):
 
 class RegressionTests(unittest.TestCase):
     real_contact_generator = staticmethod(helper.generate_contact_image)
+    real_send_email = staticmethod(helper.send_email)
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -79,13 +81,10 @@ class RegressionTests(unittest.TestCase):
 
     def user(self, email='user@example.com', authorized=0, token=None, approval='approve'):
         conn = self.db()
-        database.add_user(conn, email, token, 'Test 12', approval_token=approval)
+        database.add_user(conn, email, token, approval_token=approval)
         database.update_user(conn, email, authorized=authorized)
+        database.set_subscription(conn, email, 'Test 12', [email])
         return email
-
-    def identity(self, email='new@example.com', age=0):
-        with self.client.session_transaction() as session:
-            session['registration'] = {'email': email, 'picture': None, 'issued_at': time.time() - age}
 
     def oauth(self, email, verified=True):
         google = Mock()
@@ -93,78 +92,75 @@ class RegressionTests(unittest.TestCase):
         with patch.object(index, 'google', google):
             return self.client.get('/oauth2callback')
 
-    def test_keyless_address_picker_is_available_on_all_address_forms(self):
-        self.identity()
-        registration = self.client.get('/complete_registration')
+    def test_keyless_address_picker_is_available_on_home(self):
         self.user(authorized=2, token='admin-test')
         self.client.set_cookie('token', 'admin-test')
-        home = self.client.get('/')
-        admin = self.client.get('/manage_users')
-        for response in (registration, home, admin):
-            self.assertEqual(response.status_code, 200)
-            html = response.get_data(as_text=True)
-            self.assertIn('data-address-picker', html)
-            self.assertIn('data-map-search', html)
-            self.assertIn('data-map-frame', html)
-            self.assertIn('js/address_picker.js', html)
-            self.assertIn('css/address_picker.css', html)
-            self.assertNotIn('data-maps-key', html)
-            self.assertNotIn('maps.googleapis.com', html)
-            self.assertNotIn(settings.GEMINI_API_KEY, html)
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('data-address-picker', html)
+        self.assertIn('data-map-search', html)
+        self.assertIn('data-map-frame', html)
+        self.assertIn('js/address_picker.js', html)
+        self.assertIn('css/address_picker.css', html)
+        self.assertNotIn('data-maps-key', html)
+        self.assertNotIn('maps.googleapis.com', html)
+        self.assertNotIn(settings.GEMINI_API_KEY, html)
+        self.assertEqual(self.client.get('/manage_users').status_code, 200)
 
-    def test_address_picker_preserves_manual_entry(self):
-        self.user(authorized=1, token='login')
+    def test_account_manages_multiple_addresses_with_recipients(self):
+        email = self.user(authorized=1, token='login')
         self.client.set_cookie('token', 'login')
         html = self.client.get('/').get_data(as_text=True)
-        response = self.client.post('/', data={'address': 'Manual address 12'})
         self.assertNotIn('data-map-link', html)
+        response = self.client.post('/', data={'address': ' Manual address 12 ',
+                                               'emails': 'a@example.com, b@example.com\na@example.com'})
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(database.get_user(self.db(), email='user@example.com')['address'], 'Manual address 12')
+        self.client.post('/', data={'address': 'Test 12', 'emails': 'tenant@example.com'})
+        self.assertEqual(database.get_subscriptions(self.db(), email),
+                         {'Manual address 12': ['a@example.com', 'b@example.com'],
+                          'Test 12': ['tenant@example.com']})
+        html = self.client.get('/').get_data(as_text=True)
+        self.assertIn('Manual address 12', html)
+        self.assertIn('tenant@example.com', html)
+        self.client.post('/', data={'address': 'Test 12', 'action': 'remove'})
+        for emails in ('', 'not-an-email', 'ok@example.com bad@'):
+            self.client.post('/', data={'address': 'Other 1', 'emails': emails})
+        self.assertEqual(list(database.get_subscriptions(self.db(), email)), ['Manual address 12'])
+        database.delete_user(self.db(), email)
+        self.assertEqual(database.get_subscriptions(self.db()), {})
 
-    def test_registration_requires_verified_session_for_get_and_post(self):
-        for method in (self.client.get, self.client.post):
-            response = method('/complete_registration?email=attacker@example.com',
-                              data={'email': settings.ADMIN_EMAIL, 'address': 'Bad 1'})
-            self.assertEqual(response.status_code, 302)
-            self.assertTrue(response.location.endswith('/login'))
-        self.assertEqual(database.get_user(self.db(), email=settings.ADMIN_EMAIL)['authorized'], 2)
-        self.mail.assert_not_called()
-
-    def test_registration_ignores_forged_email_and_uses_google_identity(self):
-        self.assertTrue(self.oauth('verified@example.com').location.endswith('/complete_registration'))
-        response = self.client.post('/complete_registration', data={'email': settings.ADMIN_EMAIL, 'address': ' Good 12 '})
-        self.assertEqual(response.status_code, 302)
+    def test_new_google_user_is_registered_without_address_and_admin_notified(self):
+        self.assertTrue(self.oauth('verified@example.com').location.endswith('/login'))
         user = database.get_user(self.db(), email='verified@example.com')
-        self.assertEqual(user['address'], 'Good 12')
+        self.assertEqual(user['authorized'], 0)
         self.assertIsNone(user['token'])
         self.assertTrue(user['approval_token'])
-        self.assertEqual(database.get_user(self.db(), email=settings.ADMIN_EMAIL)['authorized'], 2)
+        self.assertEqual(database.get_subscriptions(self.db(), 'verified@example.com'), {})
         self.mail.assert_called_once()
-        with self.client.session_transaction() as session:
-            self.assertNotIn('registration', session)
+        self.assertEqual(self.mail.call_args.kwargs['recipient'], settings.ADMIN_EMAIL)
+        self.assertIn('verified@example.com', self.mail.call_args.kwargs['body'])
+        self.oauth('verified@example.com')
+        self.mail.assert_called_once()
 
-    def test_registration_expiration_and_unverified_google(self):
-        self.identity(age=901)
-        self.assertTrue(self.client.get('/complete_registration').location.endswith('/login'))
+    def test_unverified_google_is_not_registered(self):
         self.assertTrue(self.oauth('bad@example.com', verified=False).location.endswith('/login'))
-        with self.client.session_transaction() as session:
-            self.assertNotIn('registration', session)
-
-    def test_duplicate_registration_preserves_account_and_token(self):
-        email = self.user(authorized=2, token='existing')
-        self.identity(email)
-        self.client.post('/complete_registration', data={'address': 'Replacement'})
-        user = database.get_user(self.db(), email=email)
-        self.assertEqual((user['authorized'], user['address'], user['token']), (2, 'Test 12', 'existing'))
-        self.assertFalse(database.add_user(self.db(), email, 'other', 'Other'))
+        self.assertIsNone(database.get_user(self.db(), email='bad@example.com'))
         self.mail.assert_not_called()
+
+    def test_duplicate_add_user_preserves_account_and_token(self):
+        email = self.user(authorized=2, token='existing')
+        self.assertFalse(database.add_user(self.db(), email, 'other'))
+        user = database.get_user(self.db(), email=email)
+        self.assertEqual((user['authorized'], user['token']), (2, 'existing'))
 
     def test_pending_user_cannot_access_or_update_home_even_with_login_token(self):
         email = self.user(token='pending-login')
         self.client.set_cookie('token', 'pending-login')
-        for response in (self.client.get('/'), self.client.post('/', data={'address': 'Replacement'})):
+        for response in (self.client.get('/'),
+                         self.client.post('/', data={'address': 'Replacement', 'emails': email})):
             self.assertTrue(response.location.endswith('/login'))
-        self.assertEqual(database.get_user(self.db(), email=email)['address'], 'Test 12')
+        self.assertEqual(database.get_subscriptions(self.db(), email), {'Test 12': [email]})
 
     def test_pending_oauth_does_not_rotate_approval_or_issue_login_token(self):
         email = self.user()
@@ -207,19 +203,20 @@ class RegressionTests(unittest.TestCase):
         self.client.get('/logout')
         self.assertIsNone(database.get_user(self.db(), email=email)['token'])
 
-    def test_registration_keeps_csrf_protection(self):
-        self.identity()
+    def test_home_keeps_csrf_protection(self):
+        email = self.user(authorized=1, token='login')
+        self.client.set_cookie('token', 'login')
         with patch.dict(index.application.config, WTF_CSRF_ENABLED=True):
-            self.assertEqual(self.client.post('/complete_registration', data={'address': 'Test'}).status_code, 400)
-        self.mail.assert_not_called()
+            self.assertEqual(self.client.post('/', data={'address': 'Test', 'emails': email}).status_code, 400)
+        self.assertEqual(list(database.get_subscriptions(self.db(), email)), ['Test 12'])
 
     def test_old_database_migration_preserves_links_and_revokes_legacy_logins(self):
         path = str(Path(self.temp.name) / 'legacy.db')
         conn = sqlite3.connect(path)
         self.addCleanup(conn.close)
         conn.execute('CREATE TABLE users (email TEXT UNIQUE, token TEXT UNIQUE, authorized INTEGER, address TEXT, picture TEXT, last_seen TEXT)')
-        conn.executemany('INSERT INTO users (email,token,authorized) VALUES (?,?,?)',
-                         [('pending@example.com', 'old-approval', 0), ('admin@example.com', 'old-login', 2)])
+        conn.executemany('INSERT INTO users (email,token,authorized,address) VALUES (?,?,?,?)',
+                         [('pending@example.com', 'old-approval', 0, None), ('admin@example.com', 'old-login', 2, ' Old 1 ')])
         conn.commit()
         database.init_database(conn)
         database.init_database(conn)
@@ -229,6 +226,8 @@ class RegressionTests(unittest.TestCase):
         conn.commit()
         database.init_database(conn)
         self.assertEqual(conn.execute('SELECT token FROM users WHERE authorized=2').fetchone(), ('new-login',))
+        self.assertEqual(conn.execute('SELECT * FROM subscriptions').fetchall(),
+                         [('admin@example.com', 'Old 1', 'admin@example.com')])
 
     def model_response(self, data):
         response = Mock()
@@ -346,10 +345,11 @@ class RegressionTests(unittest.TestCase):
         self.setup_run()
         self.user(email='neighbor@example.com', authorized=1)
         self.user(email='other@example.com', authorized=1)
-        database.update_user(self.db(), 'other@example.com', address='Test 24')
+        database.set_subscription(self.db(), 'other@example.com', 'Test 12', [])
+        database.set_subscription(self.db(), 'other@example.com', 'Test 24', ['other@example.com'])
         self.user(email='pending@example.com', authorized=0)
         self.user(email='blank@example.com', authorized=1)
-        database.update_user(self.db(), 'blank@example.com', address='   ')
+        database.set_subscription(self.db(), 'blank@example.com', 'Test 12', [])
         power = {'date_matches': True, 'results': [
             {'address_id': 'a2', 'outage': False, 'details': ''},
             {'address_id': 'a1', 'outage': True, 'details': '8–10'},
@@ -375,6 +375,73 @@ class RegressionTests(unittest.TestCase):
         self.assertNotIn('Voda:', mails['user@example.com'])
         self.assertIn('Voda: 12–14', mails['other@example.com'])
         self.assertNotIn('Struja:', mails['other@example.com'])
+
+    def test_notification_unsubscribe_link_removes_only_that_address(self):
+        self.setup_run()
+        database.set_subscription(self.db(), 'user@example.com', 'Test 24', ['user@example.com'])
+        self.user(email='manager@example.com', authorized=1)
+        database.set_subscription(self.db(), 'manager@example.com', 'Test 12', ['manager@example.com', 'user@example.com'])
+        with patch.object(checker, 'check_addresses', return_value={'Test 12': {'outage': True, 'details': '8–10'}}):
+            self.client.get('/run_check', query_string={'token': settings.TRIGGER_TOKEN})
+        body = self.mail.call_args.kwargs['body']
+        link = body.split('Kliknite ovde da se odjavite sa obaveštenja za ovu adresu: http://localhost')[1].strip()
+        self.assertEqual(self.client.get(link.replace('token=', 'token=x')).status_code, 403)
+        self.assertEqual(self.client.get(link).status_code, 200)
+        self.assertIn('Test 12', database.get_subscriptions(self.db(), 'manager@example.com'))
+        path, query = link.split('?')
+        self.assertIn('Odjavljeni ste', self.client.post(path, data=dict(parse_qsl(query))).get_data(as_text=True))
+        self.assertEqual(database.get_subscriptions(self.db(), 'user@example.com'), {'Test 24': ['user@example.com']})
+        self.assertEqual(database.get_subscriptions(self.db(), 'manager@example.com'), {'Test 12': ['manager@example.com']})
+
+    def test_account_signature_is_appended_to_notifications(self):
+        self.setup_run()
+        self.client.set_cookie('token', 'login')
+        database.update_user(self.db(), 'user@example.com', token='login')
+        self.client.post('/', data={'action': 'signature', 'signature': ' Upravnik zgrade\n060 123 '})
+        self.assertIn('Upravnik zgrade', self.client.get('/').get_data(as_text=True))
+        self.user(email='manager@example.com', authorized=1)
+        database.set_subscription(self.db(), 'manager@example.com', 'Test 12', ['user@example.com'])
+        database.update_user(self.db(), 'manager@example.com', signature='Drugi upravnik')
+        with patch.object(checker, 'check_addresses', return_value={'Test 12': {'outage': True, 'details': '8–10'}}):
+            self.client.get('/run_check', query_string={'token': settings.TRIGGER_TOKEN})
+        body = self.mail.call_args.kwargs['body']
+        self.assertEqual(self.mail.call_count, 1)
+        self.assertIn('Voda: 8–10\n\n--\nDrugi upravnik\n\n--\nUpravnik zgrade\n060 123\n\nKliknite ovde', body)
+        self.assertIn('Kliknite ovde da se odjavite', self.mail.call_args.kwargs['html'])
+        self.assertEqual(self.mail.call_args.kwargs['images'], [])
+
+    def test_logo_upload_validation_delete_and_inline_mail(self):
+        self.setup_run()
+        database.update_user(self.db(), 'user@example.com', token='login')
+        self.client.set_cookie('token', 'login')
+        png = b'\x89PNG\r\n\x1a\n' + b'0' * 100
+        logo = lambda: database.get_user(self.db(), email='user@example.com')['logo']
+        for data, name in [(b'GIF89a...', 'fake.png'), (b'\xff\xd8\xff' + b'0' * (500 * 1024), 'big.jpg')]:
+            self.client.post('/', data={'logo': (io.BytesIO(data), name)}, content_type='multipart/form-data')
+            self.assertIsNone(logo())
+        self.client.post('/', data={'logo': (io.BytesIO(png), 'logo.png')}, content_type='multipart/form-data')
+        self.assertTrue(logo().startswith('data:image/png;base64,'))
+        self.assertIn(logo(), self.client.get('/').get_data(as_text=True))
+        with patch.object(checker, 'check_addresses', return_value={'Test 12': {'outage': True, 'details': '8–10'}}):
+            self.client.get('/run_check', query_string={'token': settings.TRIGGER_TOKEN})
+        kwargs = self.mail.call_args.kwargs
+        self.assertEqual(kwargs['images'], [('logo0', png, 'png')])
+        self.assertRegex(kwargs['html'], r'<tr><td[^>]*><img src="cid:logo0"[^>]*></td><td[^>]*></td></tr>')
+        self.assertIn('<a href="http://localhost/unsubscribe?', kwargs['html'])
+        self.assertIn('Kliknite ovde da se odjavite sa obaveštenja za ovu adresu: http://localhost/unsubscribe?', kwargs['body'])
+        self.client.post('/', data={'action': 'logo_delete'})
+        self.assertIsNone(logo())
+
+    def test_html_email_inlines_images(self):
+        with patch.object(helper, 'send_email', self.real_send_email), \
+             patch.object(helper.smtplib, 'SMTP') as smtp, patch.object(settings, 'SMTP_PASS', 'x', create=True):
+            helper.send_email('a@example.com', 'Subject', 'plain', html='<img src="cid:logo0">',
+                              images=[('logo0', b'\x89PNG\r\n\x1a\n', 'png')])
+        raw = smtp.return_value.__enter__.return_value.sendmail.call_args.args[2]
+        self.assertIn('multipart/related', raw)
+        self.assertIn('multipart/alternative', raw)
+        self.assertIn('Content-ID: <logo0>', raw)
+        self.assertIn('Content-Type: image/png', raw)
 
     def test_invalid_bulk_service_response_does_not_prevent_other_service_delivery(self):
         self.setup_run()
@@ -404,7 +471,8 @@ class RegressionTests(unittest.TestCase):
     def test_address_changed_during_check_is_deferred_to_next_day(self):
         self.setup_run()
         def check(html, addresses, service, date):
-            database.update_user(self.db(), 'user@example.com', address='New 24')
+            database.set_subscription(self.db(), 'user@example.com', 'Test 12', [])
+            database.set_subscription(self.db(), 'user@example.com', 'New 24', ['user@example.com'])
             return {address: {'outage': True, 'details': '8–10'} for address in addresses}
         with patch.object(checker, 'check_addresses', side_effect=check):
             report = checker.run_checks()
@@ -433,7 +501,7 @@ class RegressionTests(unittest.TestCase):
         self.setup_run()
         self.user(email='other@example.com', authorized=1)
         failures = {'user@example.com': 1}
-        def send(recipient, subject, body):
+        def send(recipient, subject, body, **kwargs):
             # Analysis success is already durable when SMTP starts.
             self.assertTrue(database.check_done(self.db(), str(self.tomorrow - datetime.timedelta(days=1))))
             if failures.get(recipient, 0):
@@ -539,7 +607,8 @@ with patch.object(t.helper, 'fetch_html', side_effect=AssertionError('Must not f
         self.mail.side_effect = RuntimeError('SMTP failed')
         with patch.object(checker, 'check_addresses', return_value={'Test 12': {'outage': True, 'details': '8–10'}}):
             checker.run_checks()
-        database.update_user(self.db(), 'user@example.com', address='New 24')
+        database.set_subscription(self.db(), 'user@example.com', 'Test 12', [])
+        database.set_subscription(self.db(), 'user@example.com', 'New 24', ['user@example.com'])
         self.mail.reset_mock(side_effect=True)
         with patch.object(checker, 'check_addresses') as match:
             retry = checker.run_checks()
@@ -618,7 +687,7 @@ with patch.object(t.helper, 'fetch_html', side_effect=AssertionError('Must not f
                  patch.object(checker.datetime, 'datetime') as clock, patch.object(checker, '_run_checks', return_value={}) as run:
                 clock.now.side_effect = lambda tz: utc.astimezone(tz)
                 checker.run_checks()
-            run.assert_called_once_with(utc.astimezone(ZoneInfo('Europe/Belgrade')).date())
+            run.assert_called_once_with(utc.astimezone(ZoneInfo('Europe/Belgrade')).date(), None)
 
     def test_start_hour_defaults_to_19_for_existing_settings(self):
         utc = datetime.datetime(2026, 9, 26, 16, 0, tzinfo=datetime.timezone.utc)

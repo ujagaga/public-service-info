@@ -5,8 +5,11 @@
 pip install flask flask-wtf httpx requests
 """
 
+import base64
+import hmac
 import logging
 import os
+import re
 import sys
 import time
 
@@ -119,7 +122,7 @@ def login():
         token = helper.generate_token()
         user_email = "local@localhost"
         if not database.get_user(connection=g.db, email=user_email):
-            database.add_user(connection=g.db, email=user_email, token=token, address='')
+            database.add_user(connection=g.db, email=user_email, token=token)
         database.update_user(connection=g.db, email=user_email, token=token, authorized=2)
 
         response = make_response(redirect(safe_url_for('index')))
@@ -142,7 +145,6 @@ def logout():
 
 @application.route('/oauth2callback')
 def oauth2callback():
-    session.pop('registration', None)
     try:
         google.authorize_access_token()
         user_info = google.get('userinfo').json()
@@ -160,8 +162,11 @@ def oauth2callback():
 
     user = database.get_user(connection=g.db, email=email)
     if not user:
-        session['registration'] = {'email': email, 'picture': picture, 'issued_at': time.time()}
-        return redirect(safe_url_for('complete_registration'))
+        register(email, picture)
+        flash("Registracija je poslata. Dobicete mejl kada je administrator odobri.")
+        response = redirect(safe_url_for("login"))
+        response.set_cookie('token', 'None', expires=0)
+        return response
 
     if user["authorized"] > 0:
         token = helper.generate_token()
@@ -190,11 +195,15 @@ def index():
         user=user,
         admin=user["authorized"] > 1,
         unauthorized_users=unauthorized_users,
+        subscriptions=database.get_subscriptions(g.db, user["email"]),
         title=appsettings.APP_TITLE,
         url_for=safe_url_for
     ))
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     return resp
+
+
+MAX_LOGO_BYTES = 500 * 1024
 
 
 @application.route('/', methods=['POST'])
@@ -203,43 +212,60 @@ def index_post():
     if not user:
         return redirect(safe_url_for('login'))
 
-    address = request.form.get('address')
-    if address:
-        database.update_user(connection=g.db, email=user["email"], address=address)
-        flash("Adresa je sacuvana.")
+    if request.form.get('action') == 'logo_delete':
+        database.set_logo(g.db, user["email"], None)
+        flash("Logo je uklonjen.")
+        return redirect(safe_url_for('index'))
 
-    return redirect(safe_url_for('index'))
+    upload = request.files.get('logo')
+    if upload and upload.filename:
+        data = upload.read(MAX_LOGO_BYTES + 1)
+        subtype = helper.image_subtype(data)
+        if not subtype:
+            flash("Logo mora biti PNG ili JPG slika.")
+        elif len(data) > MAX_LOGO_BYTES:
+            flash("Logo može imati najviše 500 KB.")
+        else:
+            database.set_logo(g.db, user["email"],
+                              f"data:image/{subtype};base64,{base64.b64encode(data).decode()}")
+            flash("Logo je sacuvan.")
+        return redirect(safe_url_for('index'))
 
-
-@application.route('/complete_registration', methods=['GET', 'POST'])
-def complete_registration():
-    identity = session.get('registration')
-    if not identity or not 0 <= time.time() - identity.get('issued_at', 0) <= 900:
-        session.pop('registration', None)
-        flash("Prijavite se Google nalogom da biste završili registraciju.")
-        return redirect(safe_url_for('login'))
-    email = identity['email']
-    if request.method == 'GET':
-        return render_template('complete_registration.html', email=email,
-                               title=appsettings.APP_TITLE, url_for=safe_url_for)
+    if request.form.get('action') == 'signature':
+        database.update_user(g.db, user["email"], signature=request.form.get('signature', '').strip())
+        flash("Potpis je sacuvan.")
+        return redirect(safe_url_for('index'))
 
     address = request.form.get('address', '').strip()
     if not address:
-        flash("Nedostaju podaci.")
-        return redirect(request.url)
+        return redirect(safe_url_for('index'))
 
+    if request.form.get('action') == 'remove':
+        database.set_subscription(g.db, user["email"], address, [])
+        flash("Adresa je uklonjena.")
+        return redirect(safe_url_for('index'))
+
+    emails = list(dict.fromkeys(e for e in re.split(r'[\s,;]+', request.form.get('emails', '')) if e))
+    invalid = [e for e in emails if not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+', e)]
+    if invalid or not emails:
+        flash("Unesite bar jednu ispravnu email adresu." if not invalid
+              else f"Neispravne email adrese: {', '.join(invalid)}")
+        return redirect(safe_url_for('index'))
+
+    database.set_subscription(g.db, user["email"], address, emails)
+    flash("Adresa je sacuvana.")
+    return redirect(safe_url_for('index'))
+
+
+def register(email, picture):
     approval_token = helper.generate_token()
-    created = database.add_user(connection=g.db, email=email, token=None, address=address,
-                                approval_token=approval_token, picture=identity.get('picture'))
-    session.pop('registration', None)
-    if not created:
-        flash("Nalog već postoji. Prijavite se da biste nastavili.")
-        return redirect(safe_url_for('login'))
+    if not database.add_user(connection=g.db, email=email, token=None,
+                             approval_token=approval_token, picture=picture):
+        return
 
     approve_link = request.host_url.rstrip('/') + safe_url_for('approve_user', email=email, token=approval_token)
     body = (
-        f"Novi korisnik: {email}\n"
-        f"Adresa: {address}\n\n"
+        f"Novi korisnik: {email}\n\n"
         f"Odobri: {approve_link}\n"
         f"Ili upravljaj ovde: {request.host_url.rstrip('/')}{safe_url_for('manage_users')}"
     )
@@ -250,9 +276,6 @@ def complete_registration():
                               body=body)
         except Exception as error:
             logger.exception(f"Could not notify admin {admin['email']}: {error}")
-
-    flash("Registracija je poslata. Dobicete mejl kada je administrator odobri.")
-    return redirect(safe_url_for('login'))
 
 
 @application.route('/approve_user', methods=['GET'])
@@ -265,6 +288,22 @@ def approve_user():
     if not approve_and_notify(email, token):
         return "Invalid or expired approval token.", 403
     return f"Korisnik {email} je odobren.", 200, {"Content-Type": "text/plain; charset=utf-8"}
+
+
+@application.route('/unsubscribe', methods=['GET', 'POST'])
+def unsubscribe():
+    email = request.values.get('email', '')
+    address = request.values.get('address', '')
+    token = request.values.get('token', '')
+    if not hmac.compare_digest(token, helper.unsubscribe_token(email, address)):
+        return "Invalid unsubscribe link.", 403
+
+    # GET only confirms, so link scanners in mail clients cannot unsubscribe anyone.
+    done = request.method == 'POST'
+    if done:
+        database.unsubscribe(g.db, email, address)
+    return render_template('unsubscribe.html', email=email, address=address, token=token, done=done,
+                           title=appsettings.APP_TITLE, url_for=safe_url_for)
 
 
 @application.route('/manage_users', methods=['GET'])
@@ -289,6 +328,7 @@ def manage_users():
     resp = make_response(render_template('manage_users.html', user=user,
                                          unauthorized_users=unauthorized_users,
                                          authorized_users=authorized_users,
+                                         subscriptions=database.get_subscriptions(g.db),
                                          title=appsettings.APP_TITLE, url_for=safe_url_for))
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     return resp
@@ -314,10 +354,6 @@ def manage_users_post():
             database.update_user(connection=g.db, email=email, authorized=2)
     elif action == 'remove':
         database.delete_user(connection=g.db, email=email)
-    elif action == 'update_address':
-        address = request.form.get('address')
-        if address:
-            database.update_user(connection=g.db, email=email, address=address)
 
     return redirect(safe_url_for('manage_users'))
 
@@ -332,7 +368,7 @@ def run_check():
         # Imported here so the Gemini client is only created when a check actually runs.
         import checker
 
-        result = checker.run_checks()
+        result = checker.run_checks(request.host_url.rstrip('/') + safe_url_for('unsubscribe'))
     except Exception as error:
         logger.exception(f"Check run failed: {error}")
         return f"Check run failed: {error}", 500

@@ -52,6 +52,11 @@ def init_database(connection):
         )
 
     columns = {row[1] for row in cursor.execute("PRAGMA table_info(users)")}
+    if "signature" not in columns:
+        cursor.execute("ALTER TABLE users ADD COLUMN signature TEXT")
+    if "logo" not in columns:
+        # data: URI of a validated PNG/JPEG, shown on the page and inlined in notification mail.
+        cursor.execute("ALTER TABLE users ADD COLUMN logo TEXT")
     if "approval_token" not in columns:
         cursor.execute("ALTER TABLE users ADD COLUMN approval_token TEXT")
         # Old admin approvals left approval credentials in the login-token field.
@@ -104,6 +109,21 @@ def init_database(connection):
         )
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS outbox_pending ON notification_outbox (check_date, status)")
+    if not table_exists(connection, "subscriptions"):
+        # One row per (account, address, notified email); an account may watch many addresses.
+        cursor.execute("""
+            CREATE TABLE subscriptions (
+                owner TEXT NOT NULL,
+                address TEXT NOT NULL,
+                email TEXT NOT NULL,
+                PRIMARY KEY (owner, address, email)
+            )
+        """)
+        # Carry over the single address accounts had before, notifying the account itself.
+        cursor.execute("""
+            INSERT INTO subscriptions (owner, address, email)
+            SELECT email, TRIM(address), email FROM users WHERE TRIM(COALESCE(address, '')) != ''
+        """)
     connection.commit()
 
     cursor.close()
@@ -145,7 +165,10 @@ def save_service_check(connection, date: str, outage_date: str, service: str, ma
             "INSERT INTO service_checks (date, service, results_json, done_at) VALUES (?, ?, ?, ?)",
             (date, service, json.dumps(matches, ensure_ascii=False), int(time.time())),
         )
-        users = connection.execute("SELECT email, address FROM users WHERE authorized > 0").fetchall()
+        users = connection.execute("""
+            SELECT DISTINCT s.email, s.address FROM subscriptions s
+            JOIN users u ON u.email = s.owner WHERE u.authorized > 0
+        """).fetchall()
         checked = 0
         for user in users:
             result = matches.get(user['address'])
@@ -172,8 +195,9 @@ def get_pending_notifications(connection, date: str) -> list[dict]:
     connection.execute("""
         UPDATE notification_outbox SET status = 'cancelled'
         WHERE check_date = ? AND status = 'pending' AND NOT EXISTS (
-            SELECT 1 FROM users WHERE users.email = notification_outbox.email
-            AND users.address = notification_outbox.address AND users.authorized > 0
+            SELECT 1 FROM subscriptions s JOIN users u ON u.email = s.owner
+            WHERE s.email = notification_outbox.email
+            AND s.address = notification_outbox.address AND u.authorized > 0
         )
     """, (date,))
     connection.commit()
@@ -202,12 +226,12 @@ def finish_notification_attempt(connection, notifications: list[dict], error: st
                 """, (error, item['id']))
 
 
-def add_user(connection, email: str, token: str | None, address: str,
+def add_user(connection, email: str, token: str | None,
              approval_token: str | None = None, picture: str | None = None) -> bool:
     cursor = connection.execute(
-        "INSERT INTO users (email, token, address, approval_token, picture) VALUES (?, ?, ?, ?, ?) "
+        "INSERT INTO users (email, token, approval_token, picture) VALUES (?, ?, ?, ?) "
         "ON CONFLICT(email) DO NOTHING;",
-        (email, token, address, approval_token, picture),
+        (email, token, approval_token, picture),
     )
     connection.commit()
     return cursor.rowcount == 1
@@ -245,15 +269,58 @@ def record_deliveries(connection, email: str, address: str, services: list[str],
 
 
 def delete_user(connection, email: str):
-    connection.execute("DELETE FROM users WHERE email = ?;", (email,))
-    connection.commit()
+    with connection:
+        connection.execute("DELETE FROM subscriptions WHERE owner = ?;", (email,))
+        connection.execute("DELETE FROM users WHERE email = ?;", (email,))
 
 
 def get_check_addresses(connection) -> list[str]:
-    rows = connection.execute(
-        "SELECT DISTINCT address FROM users WHERE authorized > 0 AND address IS NOT NULL ORDER BY address"
-    )
-    return [row['address'] for row in rows if row['address'].strip()]
+    rows = connection.execute("""
+        SELECT DISTINCT s.address FROM subscriptions s JOIN users u ON u.email = s.owner
+        WHERE u.authorized > 0 ORDER BY s.address
+    """)
+    return [row['address'] for row in rows]
+
+
+def get_subscriptions(connection, owner: str = None) -> dict:
+    """{owner: {address: [emails]}}, or {address: [emails]} for one owner."""
+    sql = "SELECT owner, address, email FROM subscriptions"
+    params = ()
+    if owner:
+        sql, params = sql + " WHERE owner = ?", (owner,)
+    result = {}
+    for row in connection.execute(sql + " ORDER BY address, email", params):
+        result.setdefault(row['owner'], {}).setdefault(row['address'], []).append(row['email'])
+    return result.get(owner, {}) if owner else result
+
+
+def unsubscribe(connection, email: str, address: str):
+    with connection:
+        connection.execute("DELETE FROM subscriptions WHERE email = ? AND address = ?", (email, address))
+
+
+def set_logo(connection, email: str, logo: str | None):
+    connection.execute("UPDATE users SET logo = ? WHERE email = ?", (logo, email))
+    connection.commit()
+
+
+def get_signatures(connection, email: str, address: str) -> list[dict]:
+    """Signatures and logos of approved accounts that notify this email about this address."""
+    rows = connection.execute("""
+        SELECT DISTINCT u.signature, u.logo FROM subscriptions s JOIN users u ON u.email = s.owner
+        WHERE s.email = ? AND s.address = ? AND u.authorized > 0
+        AND (TRIM(COALESCE(u.signature, '')) != '' OR u.logo IS NOT NULL)
+        ORDER BY u.email
+    """, (email, address))
+    return [dict(row) for row in rows]
+
+
+def set_subscription(connection, owner: str, address: str, emails: list[str]):
+    """Replace the notified emails for one address; an empty list removes the address."""
+    with connection:
+        connection.execute("DELETE FROM subscriptions WHERE owner = ? AND address = ?", (owner, address))
+        connection.executemany("INSERT OR IGNORE INTO subscriptions (owner, address, email) VALUES (?, ?, ?)",
+                               [(owner, address, email) for email in emails])
 
 
 def get_user(connection, email: str = None, token: str = None, authorized: int = None):
@@ -294,8 +361,8 @@ def get_user(connection, email: str = None, token: str = None, authorized: int =
 
 
 def update_user(connection, email: str, token: str = None, authorized: int = None,
-                picture: str = None, address: str = None):
-    fields = {"token": token, "authorized": authorized, "picture": picture, "address": address}
+                picture: str = None, signature: str = None):
+    fields = {"token": token, "authorized": authorized, "picture": picture, "signature": signature}
     fields = {name: value for name, value in fields.items() if value is not None}
     if not fields:
         return
