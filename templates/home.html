@@ -79,7 +79,8 @@
         </div>
         {% if billing.start %}
         <p class="billing-status">Aktivna od {{ billing.start.strftime('%d.%m.%Y') }} · sledeća uplata {{ billing.next_due.strftime('%d.%m.%Y') }}
-            {% if billing.missed %}<span class="badge overdue">Dospelo · neplaćeno: {{ billing.missed }}</span>{% else %}<span class="badge">Uredno</span>{% endif %}</p>
+            {% if billing.missed %}<span class="badge overdue">Dospelo · neplaćeno: {{ billing.missed }}{% if billing.fee is not none %} ({{ (billing.missed * billing.fee)|amount }} RSD){% endif %}</span>{% else %}<span class="badge">Uredno</span>{% endif %}</p>
+        {% if billing.fee is not none %}<p class="billing-status">Mesečno: {{ billing.fee|amount }} RSD ({{ subscriptions|length }} adr.)</p>{% endif %}
         {% else %}
         <p class="billing-status">Datum pretplate još nije postavljen.</p>
         {% endif %}

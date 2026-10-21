@@ -53,6 +53,8 @@ def init_database(connection):
     columns = {row[1] for row in cursor.execute("PRAGMA table_info(users)")}
     if "signature" not in columns:
         cursor.execute("ALTER TABLE users ADD COLUMN signature TEXT")
+    if "price_per_address" not in columns:
+        cursor.execute("ALTER TABLE users ADD COLUMN price_per_address REAL")
     if "subscribed_on" not in columns:
         cursor.execute("ALTER TABLE users ADD COLUMN subscribed_on TEXT")
     if "logo" not in columns:
@@ -412,6 +414,20 @@ def set_subscribed_on(connection, email: str, day: datetime.date):
     connection.execute("UPDATE users SET subscribed_on = ? WHERE email = ?",
                        (subscription_start(day).isoformat(), email))
     connection.commit()
+
+
+def set_price(connection, email: str, price: float):
+    connection.execute("UPDATE users SET price_per_address = ? WHERE email = ?", (price, email))
+    connection.commit()
+
+
+def monthly_fee(connection, email: str) -> float | None:
+    """Price per address times the account's current address count; None until a price is set."""
+    row = connection.execute("""
+        SELECT u.price_per_address AS price, (SELECT COUNT(DISTINCT address) FROM subscriptions WHERE owner = u.email) AS count
+        FROM users u WHERE u.email = ?
+    """, (email,)).fetchone()
+    return None if row is None or row['price'] is None else row['price'] * row['count']
 
 
 def add_payment(connection, email: str, amount: float, paid_on: datetime.date):

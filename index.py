@@ -15,8 +15,7 @@ import sys
 import time
 from zoneinfo import ZoneInfo
 
-from flask import (Flask, g, render_template, request, flash, redirect, make_response,
-                   session, url_for as flask_url_for)
+from flask import (Flask, g, render_template, request, flash, redirect, make_response, session, url_for as flask_url_for)
 from flask_wtf import CSRFProtect
 
 import appsettings
@@ -84,6 +83,12 @@ def set_login_cookie(response, token):
     response.set_cookie('token', token, max_age=appsettings.MAX_COOKIE_AGE,
                         expires=time.time() + appsettings.MAX_COOKIE_AGE,
                         httponly=True, secure=request.is_secure, samesite='Lax')
+
+
+@application.template_filter('amount')
+def format_amount(value):
+    """1500 / 1500.5 -> '1500' / '1500.50'; never scientific notation."""
+    return f"{value:.2f}".removesuffix('.00')
 
 
 def today():
@@ -196,7 +201,8 @@ def billing(user):
     paid = len(database.get_payments(g.db).get(user["email"], []))
     return {'start': datetime.date.fromisoformat(user["subscribed_on"]),
             'next_due': database.next_due(user["subscribed_on"], paid),
-            'missed': database.missed_payments(user["subscribed_on"], paid, today())}
+            'missed': database.missed_payments(user["subscribed_on"], paid, today()),
+            'fee': database.monthly_fee(g.db, user["email"])}
 
 
 @application.route('/', methods=['GET'])
@@ -375,6 +381,15 @@ def manage_users_post():
             database.update_user(connection=g.db, email=email, authorized=2)
     elif action == 'remove':
         database.delete_user(connection=g.db, email=email)
+    elif action == 'set_price':
+        try:
+            price = float(request.form.get('price', '').replace(',', '.'))
+        except ValueError:
+            price = -1
+        if price >= 0:
+            database.set_price(g.db, email, price)
+        else:
+            flash("Neispravna cena po adresi.")
     elif action == 'set_subscribed_on':
         try:
             database.set_subscribed_on(g.db, email, parse_date(request.form.get('subscribed_on', '')))
@@ -407,8 +422,11 @@ def send_payment_reminders():
     dues = database.unreminded_dues(g.db, today())
     if not dues:
         return
+    def line(email, due):
+        fee = database.monthly_fee(g.db, email)
+        return f"{email}: {due:%d.%m.%Y}" + (f" - {format_amount(fee)} RSD" if fee is not None else " - cena nije postavljena")
     body = ("Dospele uplate pretplate:\n\n"
-            + "\n".join(f"{email}: {due:%d.%m.%Y}" for email, due in dues)
+            + "\n".join(line(email, due) for email, due in dues)
             + f"\n\nUpravljaj ovde: {request.host_url.rstrip('/')}{safe_url_for('manage_users')}")
     sent = False
     for admin in database.get_user(connection=g.db, authorized=2):

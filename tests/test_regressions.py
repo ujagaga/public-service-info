@@ -214,7 +214,7 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual((payment['amount'], payment['paid_on']), (1500.5, '2026-05-02'))
         html = self.client.get('/manage_users').get_data(as_text=True)
         self.assertIn('od 01.04.2026 · sledeća uplata 01.06.2026', html)
-        self.assertIn('value="1500.5"', html)
+        self.assertIn('value="1500.50"', html)
         self.assertIn('value="02.05.2026"', html)
         self.assertNotIn('type="date" name=', html)
         edit = {'email': email, 'payment_id': payment['id'], 'action': 'update_payment', 'amount': '2000', 'paid_on': '03.05.2026'}
@@ -244,6 +244,29 @@ class RegressionTests(unittest.TestCase):
         self.assertNotIn('Šta pratimo za vas', html)
         database.update_user(self.db(), email, authorized=2)
         self.assertTrue(self.client.get('/').location.endswith('/manage_users'))
+
+    def test_monthly_fee_is_price_per_address_times_address_count(self):
+        email = self.user(authorized=1, token='login')
+        database.set_subscription(self.db(), email, 'Test 24', ['x@example.com', 'y@example.com'])
+        database.set_subscribed_on(self.db(), email, datetime.date(2026, 1, 10))
+        self.assertIsNone(database.monthly_fee(self.db(), email))
+        database.update_user(self.db(), settings.ADMIN_EMAIL, token='admin-login')
+        self.client.set_cookie('token', 'admin-login')
+        for bad in ('-1', 'x'):
+            self.client.post('/manage_users', data={'email': email, 'action': 'set_price', 'price': bad})
+        self.assertIsNone(database.monthly_fee(self.db(), email))
+        self.client.post('/manage_users', data={'email': email, 'action': 'set_price', 'price': '750000,5'})
+        self.assertEqual(database.monthly_fee(self.db(), email), 1500001)
+        with patch.object(index, 'today', return_value=datetime.date(2026, 4, 10)):
+            admin_html = self.client.get('/manage_users').get_data(as_text=True)
+            self.client.set_cookie('token', 'login')
+            home_html = self.client.get('/').get_data(as_text=True)
+            self.client.get('/run_check', query_string={'token': settings.TRIGGER_TOKEN})
+        self.assertIn('RSD × 2 adr. = 1500001 RSD', admin_html)
+        self.assertIn('Dospelo · neplaćeno: 3 (4500003 RSD)', admin_html)
+        self.assertIn('Dospelo · neplaćeno: 3 (4500003 RSD)', home_html)
+        self.assertIn('Mesečno: 1500001 RSD (2 adr.)', home_html)
+        self.assertIn(f'{email}: 10.02.2026 - 1500001 RSD', self.mail.call_args.kwargs['body'])
 
     def test_payment_due_reminder_sent_once_per_due_date_and_retried_on_failure(self):
         email = self.user(authorized=1)
