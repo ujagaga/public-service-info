@@ -204,14 +204,13 @@ def index():
     user = current_user()
     if not user:
         return redirect(safe_url_for('login'))
-
-    unauthorized_users = database.get_user(connection=g.db, authorized=0)
+    if user["authorized"] > 1:
+        return redirect(safe_url_for('manage_users'))
 
     resp = make_response(render_template(
         'home.html',
         user=user,
         admin=user["authorized"] > 1,
-        unauthorized_users=unauthorized_users,
         subscriptions=database.get_subscriptions(g.db, user["email"]),
         billing=billing(user),
         title=appsettings.APP_TITLE,
@@ -338,9 +337,10 @@ def manage_users():
         key=lambda u: u["email"].lower()
     )
     authorized_users = sorted(
-        database.get_user(connection=g.db, authorized=1)
-        + database.get_user(connection=g.db, authorized=2),
-        key=lambda u: (u["email"].lower() == user["email"].lower(), u["email"].lower())
+        (u for u in database.get_user(connection=g.db, authorized=1)
+         + database.get_user(connection=g.db, authorized=2)
+         if u["email"].lower() != user["email"].lower()),
+        key=lambda u: u["email"].lower()
     )
 
     payments = database.get_payments(g.db)

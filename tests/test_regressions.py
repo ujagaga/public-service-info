@@ -76,8 +76,8 @@ class RegressionTests(unittest.TestCase):
             return self.client.get('/oauth2callback')
 
     def test_keyless_address_picker_is_available_on_home(self):
-        self.user(authorized=2, token='admin-test')
-        self.client.set_cookie('token', 'admin-test')
+        self.user(authorized=1, token='login')
+        self.client.set_cookie('token', 'login')
         response = self.client.get('/')
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
@@ -89,7 +89,18 @@ class RegressionTests(unittest.TestCase):
         self.assertNotIn('data-maps-key', html)
         self.assertNotIn('maps.googleapis.com', html)
         self.assertNotIn(settings.GEMINI_API_KEY, html)
-        self.assertEqual(self.client.get('/manage_users').status_code, 200)
+
+    def test_admin_home_is_user_management_without_nav_link(self):
+        self.user(authorized=2, token='admin-test')
+        self.client.set_cookie('token', 'admin-test')
+        self.assertTrue(self.client.get('/').location.endswith('/manage_users'))
+        html = self.client.get('/manage_users').get_data(as_text=True)
+        self.assertNotIn('Korisnici', html)
+        self.user(email='other@example.com', authorized=1)
+        html = self.client.get('/manage_users').get_data(as_text=True)
+        approved = html.split('id="approved-title"')[1]
+        self.assertIn('other@example.com', approved)
+        self.assertNotIn('user@example.com', approved)
 
     def test_account_manages_multiple_addresses_with_recipients(self):
         email = self.user(authorized=1, token='login')
@@ -232,7 +243,7 @@ class RegressionTests(unittest.TestCase):
         self.assertIn('Dospelo · neplaćeno: 2', html)
         self.assertNotIn('Šta pratimo za vas', html)
         database.update_user(self.db(), email, authorized=2)
-        self.assertNotIn('Pretplata', self.client.get('/').get_data(as_text=True))
+        self.assertTrue(self.client.get('/').location.endswith('/manage_users'))
 
     def test_payment_due_reminder_sent_once_per_due_date_and_retried_on_failure(self):
         email = self.user(authorized=1)

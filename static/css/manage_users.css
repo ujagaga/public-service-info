@@ -145,11 +145,6 @@
   padding:0;
 }
 
-.self-label {
-  color:var(--muted);
-  font-weight:400;
-}
-
 .user-actions {
   display:flex;
   gap:8px;

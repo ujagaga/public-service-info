@@ -21,7 +21,6 @@
   <a class="brand" href="{{ url_for('index') }}"><span class="brand-mark"><i class="fa-solid fa-bell" aria-hidden="true"></i></span><span>Komšijski info<small>STRUJA · VODA · {{ address_city | upper }}</small></span></a>
   <nav aria-label="Glavna navigacija">
   {% if user is defined and user %}
-    {% if user.authorized > 1 %}<a class="nav-link {% if request.endpoint == 'manage_users' %}selected{% endif %}" href="{{ url_for('manage_users') }}">Korisnici {% if unauthorized_users %}<span class="count">{{ unauthorized_users|length }}</span>{% endif %}</a>{% endif %}
     <a class="nav-link" href="{{ url_for('logout') }}">Odjava <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i></a>
   {% else %}<span class="location"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> Novi Sad</span>{% endif %}
   </nav>
