@@ -213,16 +213,7 @@ def run_checks(unsubscribe_url: str | None = None) -> dict:
 
 
 def _run_checks_locked(unsubscribe_url: str | None) -> dict:
-    start_hour = getattr(appsettings, 'CHECK_START_HOUR', 19)
-    if type(start_hour) is not int or not 0 <= start_hour <= 23:
-        raise ValueError("CHECK_START_HOUR mora biti ceo broj od 0 do 23")
     now = datetime.datetime.now(ZoneInfo("Europe/Belgrade"))
-    if now.hour < start_hour:
-        tomorrow = now.date() + datetime.timedelta(days=1)
-        return {"date": f"{tomorrow:%d.%m.%Y}", "checked": 0, "notified": [], "errors": [],
-                "skipped": True, "skip_reason": "before_start_hour", "start_hour": start_hour,
-                "check_cached": False, "check_complete": False, "pending": 0}
-
     # Kernel-managed lock survives neither a crash nor process exit. Unlike an
     # expiring lease, it cannot expire while a slow Gemini request is still running.
     with open(database.db_path + '.check.lock', 'a') as lock:

@@ -443,10 +443,6 @@ def run_check():
         logger.exception(f"Check run failed: {error}")
         return f"Check run failed: {error}", 500
 
-    if result.get('skip_reason') == 'before_start_hour':
-        return (f"Provera nije pokrenuta. Pocetak provera je u {result['start_hour']:02d}:00 "
-                "(Europe/Belgrade).\n"), 200, {"Content-Type": "text/plain; charset=utf-8"}
-
     if result["skipped"]:
         return f"Provera za {result['date']} je vec uspesno obavljena danas. Nema mejlova za ponovno slanje.\n", 200, \
                {"Content-Type": "text/plain; charset=utf-8"}

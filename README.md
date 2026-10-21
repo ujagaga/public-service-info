@@ -11,9 +11,8 @@ for the next day covers that address.
 ## How it works
 
 1. Your external timer calls `/run_check` with the shared secret from
-   `TRIGGER_TOKEN`, for example every hour. Calls before `CHECK_START_HOUR`
-   (default 19:00, Europe/Belgrade) return HTTP 200 without checking or sending mail.
-   Each permitted CGI request performs one synchronous pass; the app schedules no retries.
+   `TRIGGER_TOKEN`, for example every hour. Each CGI request performs one
+   synchronous pass; the app schedules no retries.
 2. `checker.py` fetches the daily power outage page (`POWER_CHECK_URL`) and
    looks for the water works announcement matching tomorrow's date on
    `WATER_CHECK_URL`.
@@ -148,28 +147,16 @@ It returns a plain text report, and HTTP 500 if any part of the run failed.
 
 ## CGI requests and evening retries
 
-Your timer can call `/run_check?token=<TRIGGER_TOKEN>` every hour. Set the earliest
-permitted hour in `appsettings.py`:
-
-```python
-CHECK_START_HOUR = 19
-```
-
-This must be an integer from 0 to 23. It defaults to 19 when omitted. The hour uses
-`Europe/Belgrade`, including daylight-saving changes, regardless of the server's
-timezone. Calls before 19:00 return HTTP 200 with a not-started message; they do not
-fetch pages, call Gemini, attempt emails, or mark a daily check as completed.
-At 19:00 and later, normal checks and pending-email retries are allowed. There is
-no separate end hour. Once checks and email delivery succeed, further calls that
-day do nothing. Setting the hour to 0 allows calls at any time.
+Your timer can call `/run_check?token=<TRIGGER_TOKEN>` every hour. Every call is
+allowed to check; the timer decides when checks run. Once checks and email delivery
+succeed, further calls that day do nothing.
 
 No daemon, worker queue, sleeping request, or in-process retry timer is required.
 The external timer controls the number and timing of attempts.
 
 | State when the URL is called | Action in that request |
 | --- | --- |
-| Before `CHECK_START_HOUR` | Return HTTP 200 without checking or attempting email delivery. |
-| No check started today, and start hour reached | Save the address list, check both services, save results and notifications, then attempt email delivery. |
+| No check started today | Save the address list, check both services, save results and notifications, then attempt email delivery. |
 | A service failed previously | Retry only the failed service; reuse successful results and attempt pending emails. |
 | Checks succeeded but email failed/interrupted | Read the stored notifications and retry only unsent email. No website fetching or Gemini calls. |
 | Checks and all emails succeeded | Return HTTP 200 without checking or sending again. |
@@ -191,8 +178,7 @@ The response also reports whether analysis is complete and how many emails remai
 Pending emails are cancelled if the user was removed, is no longer approved, or
 changed address. New addresses wait until the next day's check. Retries only send
 notifications from today's check; older unsent notifications remain in the database
-for inspection and are not sent as stale alerts on a later day. Nothing runs again until your timer (or you) calls the URL; each new day waits
-until the configured start hour.
+for inspection and are not sent as stale alerts on a later day. Nothing runs again until your timer (or you) calls the URL.
 
 Run on Linux/Unix with a local SQLite database; all CGI processes must use the same
 database path. A nonblocking `flock` on `<database path>.check.lock` prevents overlap

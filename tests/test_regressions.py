@@ -50,7 +50,6 @@ class RegressionTests(unittest.TestCase):
         self.db_patch.start()
         self.addCleanup(self.db_patch.stop)
         database.setup_initial_db()
-        self.enterContext(patch.object(settings, 'CHECK_START_HOUR', 0))
         self.client = index.application.test_client()
         self.mail = self.enterContext(patch.object(helper, 'send_email'))
         # Unexpected real network calls fail rather than contact external services.
@@ -612,7 +611,6 @@ sys.path.insert(0, 'tests')
 import test_regressions as t
 from unittest.mock import patch
 t.database.db_path = sys.argv[1]
-t.settings.CHECK_START_HOUR = 0
 with patch.object(t.helper, 'fetch_html', side_effect=AssertionError('Must not fetch')), \
      patch.object(t.checker, 'ask', side_effect=AssertionError('Must not call Gemini')), \
      patch.object(t.helper, 'send_email') as mail:
@@ -724,56 +722,6 @@ with patch.object(t.helper, 'fetch_html', side_effect=AssertionError('Must not f
         self.assertTrue(result['skipped'])
         fetch.assert_not_called()
         ask.assert_not_called()
-
-    def test_hourly_trigger_skips_before_configured_belgrade_hour(self):
-        self.user(authorized=1)
-        # September is UTC+2, January is UTC+1. Neither uses server-local time.
-        for utc in [datetime.datetime(2026, 9, 26, 16, 59, 59, tzinfo=datetime.timezone.utc),
-                    datetime.datetime(2026, 1, 26, 17, 59, 59, tzinfo=datetime.timezone.utc),
-                    datetime.datetime(2026, 9, 26, 22, 0, tzinfo=datetime.timezone.utc)]:
-            with self.subTest(utc=utc), patch.object(settings, 'CHECK_START_HOUR', 19), \
-                 patch.object(checker.datetime, 'datetime') as clock, patch.object(checker, '_run_checks') as run:
-                clock.now.side_effect = lambda tz: utc.astimezone(tz)
-                response = self.client.get('/run_check', query_string={'token': settings.TRIGGER_TOKEN})
-            self.assertEqual(response.status_code, 200)
-            self.assertIn('19:00 (Europe/Belgrade)', response.get_data(as_text=True))
-            run.assert_not_called()
-        self.mail.assert_not_called()
-        self.assertFalse(Path(database.db_path + '.check.lock').exists())
-        self.assertEqual(self.db().execute('SELECT COUNT(*) FROM check_batches').fetchone()[0], 0)
-        self.assertEqual(self.db().execute('SELECT COUNT(*) FROM checks').fetchone()[0], 0)
-
-    def test_hourly_trigger_starts_exactly_at_configured_hour(self):
-        for start_hour, utc in [
-            (19, datetime.datetime(2026, 9, 26, 17, 0, tzinfo=datetime.timezone.utc)),
-            (19, datetime.datetime(2026, 1, 26, 18, 0, tzinfo=datetime.timezone.utc)),
-            (20, datetime.datetime(2026, 9, 26, 18, 0, tzinfo=datetime.timezone.utc)),
-            (0, datetime.datetime(2026, 9, 25, 22, 0, tzinfo=datetime.timezone.utc)),
-            (23, datetime.datetime(2026, 9, 26, 21, 0, tzinfo=datetime.timezone.utc)),
-        ]:
-            with self.subTest(start_hour=start_hour, utc=utc), patch.object(settings, 'CHECK_START_HOUR', start_hour), \
-                 patch.object(checker.datetime, 'datetime') as clock, patch.object(checker, '_run_checks', return_value={}) as run:
-                clock.now.side_effect = lambda tz: utc.astimezone(tz)
-                checker.run_checks()
-            run.assert_called_once_with(utc.astimezone(ZoneInfo('Europe/Belgrade')).date(), None)
-
-    def test_start_hour_defaults_to_19_for_existing_settings(self):
-        utc = datetime.datetime(2026, 9, 26, 16, 0, tzinfo=datetime.timezone.utc)
-        with patch.dict(settings.__dict__):
-            del settings.CHECK_START_HOUR
-            with patch.object(checker.datetime, 'datetime') as clock:
-                clock.now.side_effect = lambda tz: utc.astimezone(tz)
-                result = checker.run_checks()
-        self.assertEqual(result['skip_reason'], 'before_start_hour')
-        self.assertEqual(result['start_hour'], 19)
-
-    def test_invalid_start_hour_does_not_run_a_check(self):
-        for value in [-1, 24, '19', 19.5, True, None]:
-            with self.subTest(value=value), patch.object(settings, 'CHECK_START_HOUR', value), \
-                 patch.object(checker, '_run_checks') as run:
-                with self.assertRaisesRegex(ValueError, 'CHECK_START_HOUR'):
-                    checker.run_checks()
-                run.assert_not_called()
 
     def test_stale_power_page_is_error_and_not_sent(self):
         self.user(authorized=1)
