@@ -31,6 +31,14 @@ import helper
 index.application.config.update(TESTING=True, DEBUG=False, WTF_CSRF_ENABLED=False)
 
 
+def power_page(date, rows=(('Нови Сад', 'Нови Сад', '09:00 - 10:00', 'Test 12, Test 24'),)):
+    """Shape of the real elektrodistribucija.rs page: heading table, then one row per outage."""
+    cells = lambda row: ''.join(f'<td><font>{cell}</font></td>' for cell in row)
+    return (f'<HTML><BODY><TABLE><TR><TD><B>НОВИ САД - Планирана искључења за датум: {date:%d.%m.%Y}.</B></TD></TR></TABLE>'
+            f'<TABLE><tr>{cells(("Огранак", "Општина", "Време", "Улице"))}</tr>'
+            + ''.join(f'<tr>{cells(row)}</tr>' for row in rows) + '</TABLE></BODY></HTML>')
+
+
 def hold_check_lock(started, release):
     def held_run(today, unsubscribe_url):
         started.set()
@@ -379,9 +387,37 @@ class RegressionTests(unittest.TestCase):
                 checker.check_addresses('page', ['Test 12'], 'voda', self.tomorrow)
             self.assertIn(self.tomorrow.strftime('%d.%m.%Y'), ask.call_args.args[0])
 
+    def test_power_rows_for_other_municipalities_never_reach_the_model(self):
+        page = power_page(self.tomorrow, [('Рума', 'Инђија', '08:00 - 12:00', 'Дринска 1-20'),
+                                          ('Нови Сад', 'Нови Сад', '09:00 - 10:00', 'Зеленгорска'),
+                                          ('Нови Сад', 'Петроварадин', '10:00 - 11:00', 'Прерадовићева')])
+        filtered = checker.power_rows_for_city(page)
+        self.assertNotIn('Инђија', filtered)
+        self.assertNotIn('Дринска', filtered)
+        self.assertIn('Зеленгорска', filtered)
+        self.assertIn('Прерадовићева', filtered)
+        self.assertIn(f'за датум: {self.tomorrow:%d.%m.%Y}', filtered)
+        self.assertEqual(settings.CITY, 'Novi Sad')  # Latin setting matches the Cyrillic page.
+        self.assertIsNone(checker.power_rows_for_city(power_page(self.tomorrow, [('Рума', 'Инђија', '08:00', 'Дринска 10')])))
+        with self.assertRaises(ValueError):
+            checker.power_rows_for_city('<table><tr><td>Нешто</td></tr></table>')
+
+    def test_power_without_city_rows_skips_model_and_prompt_names_city(self):
+        self.user(authorized=1)
+        other_city_only = power_page(self.tomorrow, [('Рума', 'Инђија', '08:00 - 12:00', 'Test 12')])
+        data = {'date_matches': True, 'results': [{'address_id': 'a1', 'outage': False, 'details': ''}]}
+        with patch.object(helper, 'fetch_html', return_value=other_city_only), \
+             patch.object(checker, 'find_water_page', return_value='water page'), \
+             patch.object(checker.httpx, 'post', return_value=self.model_response(data)) as post:
+            report = checker.run_checks()
+        self.assertFalse(report['errors'])
+        post.assert_called_once()  # water only
+        self.assertIn('Sve adrese su u gradu Novi Sad (opstine: Novi Sad, Петроварадин)', post.call_args.kwargs['json']['contents'][0]['parts'][0]['text'])
+        self.mail.assert_not_called()
+
     def setup_run(self):
         self.user(authorized=1)
-        self.enterContext(patch.object(helper, 'fetch_html', return_value=f'за датум: {self.tomorrow:%d.%m.%Y}'))
+        self.enterContext(patch.object(helper, 'fetch_html', return_value=power_page(self.tomorrow)))
         self.enterContext(patch.object(checker, 'find_water_page', return_value='water page'))
 
     def test_retry_only_sends_services_that_were_not_delivered(self):
@@ -741,7 +777,7 @@ with patch.object(t.helper, 'fetch_html', side_effect=AssertionError('Must not f
             def now(cls, tz=None):
                 return cls.combine(next_day, datetime.time(20), tzinfo=tz)
         with patch.object(checker.datetime, 'datetime', NextDay), \
-             patch.object(helper, 'fetch_html', return_value=f'за датум: {next_day + datetime.timedelta(days=1):%d.%m.%Y}'), \
+             patch.object(helper, 'fetch_html', return_value=power_page(next_day + datetime.timedelta(days=1))), \
              patch.object(checker, 'check_addresses', return_value={'Test 12': {'outage': False, 'details': ''}}) as match:
             result = checker.run_checks()
         self.assertFalse(result['check_cached'])
