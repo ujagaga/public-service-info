@@ -24,11 +24,11 @@ for the next day covers that address.
    accounts' addresses and matches them to affected addresses. Each affected
    recipient gets one email per address combining the matching services and outage
    times. Accounts sharing an address reuse the same result; emails are not sent to Gemini.
-5. Each successful service check and its pending notifications are saved together
-   in SQLite before sending email. When both service checks succeed, `checks`
-   records the day's analysis as complete, even if SMTP fails. Subsequent URL
-   calls only retry pending emails. If a service check failed, only that service
-   is checked again; successful checks and deliveries are never repeated.
+5. Each successful service check saves its pending notifications in SQLite before
+   sending email. Every URL call re-checks both services for all current addresses,
+   but at most once per hour for the whole service; calls within the hour only retry
+   pending emails. An outage already queued or delivered for a recipient, address,
+   service and date is never sent again, so repeated checks do not repeat emails.
 6. Dates use `Europe/Belgrade`. The power page's announcement heading must match
    tomorrow before it is processed. Gemini also checks the target date and must
    return correctly typed JSON. Water links must exactly match a parsed link from
@@ -68,10 +68,9 @@ Valid results from the other service can still be delivered when one service fai
 With both pages available, a run normally makes **three Gemini requests**: one to
 select the water announcement and two bulk address checks, regardless of user
 count. No water announcement means there is no water address-check request.
-The first request saves that day's address list. Later requests reuse it and only
-check services that have not succeeded. A successful no-outage result (including
-no water announcement) is saved too. New addresses are included on the next day;
-they do not cause a successful daily check to repeat. Oversized, truncated, or
+Each check uses the addresses as they are at that moment, so a newly added address
+is checked on the next call that is at least an hour after the previous check.
+Hourly calls therefore cost up to three Gemini requests per hour. Oversized, truncated, or
 incomplete responses fail the service check rather than silently omitting addresses.
 
 ## Accounts
@@ -101,7 +100,7 @@ The UI is in Serbian.
 | --- | --- |
 | `index.py` | Flask app, routes, OAuth, `/run_check` endpoint |
 | `checker.py` | Fetches announcements, asks Gemini, sends notifications |
-| `database.py` | SQLite accounts, daily checks, saved results, email outbox, and delivery history |
+| `database.py` | SQLite accounts, hourly check guard, email outbox, and delivery history |
 | `helper.py` | Token generation, HTTP fetch, SMTP sending, time formatting |
 | `cgi_serve.py` | CGI entry point for shared hosting |
 | `appsettings.py` | Configuration (not in git) |
@@ -148,28 +147,25 @@ It returns a plain text report, and HTTP 500 if any part of the run failed.
 ## CGI requests and evening retries
 
 Your timer can call `/run_check?token=<TRIGGER_TOKEN>` every hour. Every call is
-allowed to check; the timer decides when checks run. Once checks and email delivery
-succeed, further calls that day do nothing.
+allowed to check if the previous check started at least an hour ago; otherwise it only
+retries pending emails.
 
 No daemon, worker queue, sleeping request, or in-process retry timer is required.
 The external timer controls the number and timing of attempts.
 
 | State when the URL is called | Action in that request |
 | --- | --- |
-| No check started today | Save the address list, check both services, save results and notifications, then attempt email delivery. |
-| A service failed previously | Retry only the failed service; reuse successful results and attempt pending emails. |
-| Checks succeeded but email failed/interrupted | Read the stored notifications and retry only unsent email. No website fetching or Gemini calls. |
-| Checks and all emails succeeded | Return HTTP 200 without checking or sending again. |
-| New calendar day | Start a new check for tomorrow's outages. |
+| Last check started an hour or more ago | Check both services for current addresses, queue new outage notifications, then attempt pending emails. |
+| Last check started less than an hour ago | Skip fetching and Gemini; only attempt pending emails. |
+| New calendar day | Pending emails from the previous day are not retried; checks target the new tomorrow. |
 
-Daily state uses `Europe/Belgrade`. It is stored in SQLite and survives CGI process
-exit: `check_batches` holds the address list, `service_checks` holds successful
-results, `checks` marks completed daily analysis, and `notification_outbox` holds
+State uses `Europe/Belgrade` and is stored in SQLite, so it survives CGI process exit:
+`last_check` holds when the last check started, and `notification_outbox` holds
 pending/sent/cancelled notifications and delivery attempts. The existing
 `deliveries` history remains authoritative for older sent notifications.
 
-The service result and pending notifications commit in one transaction. Completed
-analysis is recorded before SMTP, so even a killed CGI request can resume sending
+A service's pending notifications commit in one transaction before SMTP, so even a
+killed CGI request can resume sending
 on the next URL call. Pending services for the same user/address are combined in
 one email; a request attempts that email at most once. HTTP 500 means a check or
 email attempt failed, while HTTP 200 means there was no failure in this request.

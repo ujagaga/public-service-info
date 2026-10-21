@@ -1,6 +1,5 @@
 import datetime
 import logging
-import json
 import os
 import sqlite3
 import time
@@ -67,8 +66,8 @@ def init_database(connection):
         cursor.execute("UPDATE users SET approval_token = token WHERE authorized = 0")
         cursor.execute("UPDATE users SET token = NULL")
 
-    if not table_exists(connection, "checks"):
-        cursor.execute("CREATE TABLE checks (date TEXT PRIMARY KEY, done_at TEXT);")
+    # Single row: when the last outage check started. Limits checks to one per hour.
+    cursor.execute("CREATE TABLE IF NOT EXISTS last_check (id INTEGER PRIMARY KEY CHECK (id = 1), started_at INTEGER NOT NULL)")
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS deliveries (
@@ -78,21 +77,6 @@ def init_database(connection):
             outage_date TEXT NOT NULL,
             sent_at INTEGER NOT NULL,
             PRIMARY KEY (email, address, service, outage_date)
-        )
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS check_batches (
-            date TEXT PRIMARY KEY,
-            addresses_json TEXT NOT NULL
-        )
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS service_checks (
-            date TEXT NOT NULL,
-            service TEXT NOT NULL,
-            results_json TEXT NOT NULL,
-            done_at INTEGER NOT NULL,
-            PRIMARY KEY (date, service)
         )
     """)
     cursor.execute("""
@@ -147,42 +131,20 @@ def init_database(connection):
     cursor.close()
 
 
-def check_done(connection, date: str) -> bool:
-    cursor = connection.execute("SELECT 1 FROM checks WHERE date = ?;", (date,))
-    return cursor.fetchone() is not None
-
-
-def record_check(connection, date: str):
-    connection.execute(
-        "INSERT OR REPLACE INTO checks (date, done_at) VALUES (?, ?);",
-        (date, int(time.time())),
-    )
-    connection.commit()
-
-
-def get_check_batch(connection, date: str) -> list[str]:
-    row = connection.execute("SELECT addresses_json FROM check_batches WHERE date = ?", (date,)).fetchone()
-    if row:
-        return json.loads(row['addresses_json'])
-    addresses = get_check_addresses(connection)
-    connection.execute("INSERT INTO check_batches (date, addresses_json) VALUES (?, ?)",
-                       (date, json.dumps(addresses, ensure_ascii=False)))
-    connection.commit()
-    return addresses
-
-
-def get_service_checks(connection, date: str) -> dict:
-    rows = connection.execute("SELECT service, results_json FROM service_checks WHERE date = ?", (date,))
-    return {row['service']: json.loads(row['results_json']) for row in rows}
-
-
-def save_service_check(connection, date: str, outage_date: str, service: str, matches: dict) -> int:
-    """Commit the successful analysis and its recipients together, before SMTP."""
+def claim_check(connection, now: int, interval: int = 3600) -> bool:
+    """True (and records the start) if no check started within the last interval seconds."""
     with connection:
-        connection.execute(
-            "INSERT INTO service_checks (date, service, results_json, done_at) VALUES (?, ?, ?, ?)",
-            (date, service, json.dumps(matches, ensure_ascii=False), int(time.time())),
-        )
+        row = connection.execute("SELECT started_at FROM last_check WHERE id = 1").fetchone()
+        if row and now - row['started_at'] < interval:
+            return False
+        connection.execute("INSERT OR REPLACE INTO last_check (id, started_at) VALUES (1, ?)", (now,))
+    return True
+
+
+def save_outages(connection, date: str, outage_date: str, service: str, matches: dict) -> int:
+    """Queue notifications for current recipients of affected addresses, before SMTP.
+    Already queued or delivered outages are ignored, so repeated checks never resend."""
+    with connection:
         users = connection.execute("""
             SELECT DISTINCT s.email, s.address FROM subscriptions s
             JOIN users u ON u.email = s.owner WHERE u.authorized > 0

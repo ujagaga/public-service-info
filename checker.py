@@ -5,6 +5,7 @@ import fcntl
 import json
 import logging
 import re
+import time
 from html.parser import HTMLParser
 from urllib.parse import urlencode, urljoin, urlsplit
 from zoneinfo import ZoneInfo
@@ -296,48 +297,34 @@ def _run_checks(today: datetime.date, unsubscribe_url: str | None = None) -> dic
     tomorrow = today + datetime.timedelta(days=1)
     check_date = str(today)
     report = {"date": f"{tomorrow:%d.%m.%Y}", "checked": 0, "notified": [], "errors": [],
-              "skipped": False, "check_cached": False, "check_complete": False, "pending": 0}
+              "skipped": False, "pending": 0}
     connection = database.open_db()
     try:
-        report['check_cached'] = database.check_done(connection, check_date)
-        if not report['check_cached']:
-            addresses = database.get_check_batch(connection, check_date)
-            completed = database.get_service_checks(connection, check_date)
-            if addresses:
-                for service in ('struja', 'voda'):
-                    if service in completed:
-                        continue
-                    try:
-                        if service == 'struja':
-                            html = helper.fetch_html(appsettings.POWER_CHECK_URL)
-                            validate_power_date(html, tomorrow)
-                            html = power_rows_for_city(html)
-                        else:
-                            html = find_water_page(tomorrow)
-                        if html is None:
-                            # A successful water lookup with no announcement is
-                            # also a completed check; do not look it up again today.
-                            matches = {address: {'outage': False, 'details': ''} for address in addresses}
-                        else:
-                            matches = check_addresses(html, addresses, service, tomorrow)
-                        checked = database.save_service_check(
-                            connection, check_date, str(tomorrow), service, matches)
-                        report['checked'] = max(report['checked'], checked)
-                        completed[service] = matches
-                        logger.info("Service check successful: service=%s target_date=%s addresses=%d%s",
-                                    service, tomorrow, len(matches),
-                                    " (no announcement)" if html is None else "")
-                    except Exception as error:
-                        logger.exception("Service check failed: service=%s target_date=%s", service, tomorrow)
-                        report['errors'].append(f"Provera ({service}) nije uspela: {error}")
-            if not addresses or all(service in completed for service in ('struja', 'voda')):
-                # Persist analysis success BEFORE any email attempt. A CGI exit
-                # or SMTP failure must never cause successful checks to repeat.
-                database.record_check(connection, check_date)
+        # Every trigger re-checks current addresses, but at most once per hour (Gemini cost).
+        # Pending emails are retried on every trigger regardless.
+        report['skipped'] = not database.claim_check(connection, int(time.time()))
+        addresses = [] if report['skipped'] else database.get_check_addresses(connection)
+        for service in ('struja', 'voda') if addresses else ():
+            try:
+                if service == 'struja':
+                    html = helper.fetch_html(appsettings.POWER_CHECK_URL)
+                    validate_power_date(html, tomorrow)
+                    html = power_rows_for_city(html)
+                else:
+                    html = find_water_page(tomorrow)
+                if html is None:
+                    matches = {address: {'outage': False, 'details': ''} for address in addresses}
+                else:
+                    matches = check_addresses(html, addresses, service, tomorrow)
+                checked = database.save_outages(connection, check_date, str(tomorrow), service, matches)
+                report['checked'] = max(report['checked'], checked)
+                logger.info("Service check successful: service=%s target_date=%s addresses=%d%s",
+                            service, tomorrow, len(matches), " (no announcement)" if html is None else "")
+            except Exception as error:
+                logger.exception("Service check failed: service=%s target_date=%s", service, tomorrow)
+                report['errors'].append(f"Provera ({service}) nije uspela: {error}")
 
-        report['check_complete'] = database.check_done(connection, check_date)
         pending = database.get_pending_notifications(connection, check_date)
-        report['skipped'] = report['check_cached'] and not pending
         by_recipient = {}
         for item in pending:
             by_recipient.setdefault((item['email'], item['address']), []).append(item)

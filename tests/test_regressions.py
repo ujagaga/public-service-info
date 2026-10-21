@@ -415,12 +415,17 @@ class RegressionTests(unittest.TestCase):
         self.assertIn('Sve adrese su u gradu Novi Sad (opstine: Novi Sad, Петроварадин)', post.call_args.kwargs['json']['contents'][0]['parts'][0]['text'])
         self.mail.assert_not_called()
 
+    def next_hour(self):
+        conn = self.db()
+        conn.execute("UPDATE last_check SET started_at = started_at - 3600")
+        conn.commit()
+
     def setup_run(self):
         self.user(authorized=1)
         self.enterContext(patch.object(helper, 'fetch_html', return_value=power_page(self.tomorrow)))
         self.enterContext(patch.object(checker, 'find_water_page', return_value='water page'))
 
-    def test_retry_only_sends_services_that_were_not_delivered(self):
+    def test_hourly_recheck_sends_only_new_outages(self):
         self.setup_run()
         def match(html, addresses, service, date):
             if service == 'voda':
@@ -431,14 +436,19 @@ class RegressionTests(unittest.TestCase):
         self.assertTrue(first['errors'])
         self.assertEqual(self.mail.call_count, 1)
         self.assertIn('Struja', self.mail.call_args.kwargs['body'])
+        with patch.object(checker, 'check_addresses') as match:
+            self.assertTrue(checker.run_checks()['skipped'])
+            match.assert_not_called()
+        self.next_hour()
         with patch.object(checker, 'check_addresses', return_value={'Test 12': {'outage': True, 'details': '9–11'}}) as match:
             second = checker.run_checks()
-            self.assertEqual(match.call_count, 1)
-            self.assertEqual(match.call_args.args[2], 'voda')
+            self.assertEqual([c.args[2] for c in match.call_args_list], ['struja', 'voda'])
         self.assertFalse(second['errors'])
         self.assertEqual(self.mail.call_count, 2)
         self.assertNotIn('Struja', self.mail.call_args.kwargs['body'])
-        self.assertTrue(checker.run_checks()['skipped'])
+        self.next_hour()
+        with patch.object(checker, 'check_addresses', return_value={'Test 12': {'outage': True, 'details': '9–11'}}):
+            self.assertFalse(checker.run_checks()['skipped'])
         self.assertEqual(self.mail.call_count, 2)
 
     def test_retry_does_not_resend_to_successful_user(self):
@@ -590,7 +600,6 @@ class RegressionTests(unittest.TestCase):
         self.mail.assert_called_once()
         self.assertIn('Voda:', self.mail.call_args.kwargs['body'])
         self.assertNotIn('Struja:', self.mail.call_args.kwargs['body'])
-        self.assertFalse(database.check_done(self.db(), str(self.tomorrow - datetime.timedelta(days=1))))
 
     def test_recipients_are_fetched_after_bulk_results(self):
         self.setup_run()
@@ -605,7 +614,7 @@ class RegressionTests(unittest.TestCase):
         self.mail.assert_called_once()
         self.assertEqual(self.mail.call_args.kwargs['recipient'], 'new-neighbor@example.com')
 
-    def test_address_changed_during_check_is_deferred_to_next_day(self):
+    def test_address_changed_during_check_is_picked_up_next_hour(self):
         self.setup_run()
         def check(html, addresses, service, date):
             database.set_subscription(self.db(), 'user@example.com', 'Test 12', [])
@@ -615,7 +624,11 @@ class RegressionTests(unittest.TestCase):
             report = checker.run_checks()
         self.assertFalse(report['errors'])
         self.mail.assert_not_called()
-        self.assertTrue(database.check_done(self.db(), str(self.tomorrow - datetime.timedelta(days=1))))
+        self.next_hour()
+        with patch.object(checker, 'check_addresses', return_value={'New 24': {'outage': True, 'details': '8–10'}}) as match:
+            checker.run_checks()
+        self.assertEqual(match.call_args.args[1], ['New 24'])
+        self.mail.assert_called_once()
 
     def test_no_affected_addresses_sends_no_email_and_completes_run(self):
         self.setup_run()
@@ -624,7 +637,6 @@ class RegressionTests(unittest.TestCase):
             report = checker.run_checks()
         self.assertFalse(report['errors'])
         self.mail.assert_not_called()
-        self.assertTrue(database.check_done(self.db(), str(self.tomorrow - datetime.timedelta(days=1))))
 
     def test_no_eligible_addresses_skips_google_and_notifications(self):
         with patch.object(checker, 'ask') as ask, patch.object(helper, 'fetch_html') as fetch:
@@ -639,8 +651,8 @@ class RegressionTests(unittest.TestCase):
         self.user(email='other@example.com', authorized=1)
         failures = {'user@example.com': 1}
         def send(recipient, subject, body, **kwargs):
-            # Analysis success is already durable when SMTP starts.
-            self.assertTrue(database.check_done(self.db(), str(self.tomorrow - datetime.timedelta(days=1))))
+            # Queued notifications are already durable when SMTP starts.
+            self.assertEqual(self.db().execute("SELECT COUNT(*) FROM notification_outbox").fetchone()[0], 4)
             if failures.get(recipient, 0):
                 failures[recipient] -= 1
                 raise RuntimeError('SMTP temporarily unavailable')
@@ -650,7 +662,7 @@ class RegressionTests(unittest.TestCase):
             first = self.client.get('/run_check', query_string=query)
             self.assertEqual(match.call_count, 2)
         self.assertEqual(first.status_code, 500)
-        self.assertIn('Provera zavrsena: da', first.get_data(as_text=True))
+        self.assertIn('obavljena u ovom pozivu', first.get_data(as_text=True))
         self.assertIn('Preostalih mejlova za slanje: 1', first.get_data(as_text=True))
         with patch.object(checker, 'check_addresses', side_effect=AssertionError('No repeated analysis')) as match, \
              patch.object(helper, 'fetch_html', side_effect=AssertionError('No repeated fetch')) as fetch, \
@@ -660,8 +672,8 @@ class RegressionTests(unittest.TestCase):
             fetch.assert_not_called()
             water.assert_not_called()
         self.assertEqual([r.status_code for r in (second, third, fourth)], [200, 200, 200])
-        self.assertIn('sacuvana ranije', second.get_data(as_text=True))
-        self.assertIn('Nema mejlova za ponovno slanje', third.get_data(as_text=True))
+        self.assertIn('preskocena', second.get_data(as_text=True))
+        self.assertIn('Preostalih mejlova za slanje: 0', third.get_data(as_text=True))
         recipients = [call.kwargs['recipient'] for call in self.mail.call_args_list]
         self.assertEqual(recipients, ['other@example.com', 'user@example.com', 'user@example.com'])
         retries = [call.kwargs['body'] for call in self.mail.call_args_list if call.kwargs['recipient'] == 'user@example.com']
@@ -673,7 +685,6 @@ class RegressionTests(unittest.TestCase):
         self.mail.side_effect = RuntimeError('SMTP failed')
         with patch.object(checker, 'check_addresses', return_value={'Test 12': {'outage': True, 'details': '8–10'}}):
             first = checker.run_checks()
-        self.assertTrue(first['check_complete'])
         self.assertEqual(first['pending'], 1)
         code = """
 import json, sys
@@ -692,7 +703,7 @@ with patch.object(t.helper, 'fetch_html', side_effect=AssertionError('Must not f
         result = json.loads(completed.stdout)
         self.assertEqual(result['status'], 200, result)
         self.assertEqual(result['sent'], 1)
-        self.assertIn('sacuvana ranije', result['body'])
+        self.assertIn('preskocena', result['body'])
         self.assertEqual(len(database.get_pending_notifications(self.db(), str(self.tomorrow - datetime.timedelta(days=1)))), 0)
 
     def test_crash_before_email_keeps_check_and_outbox_for_next_url_call(self):
@@ -701,42 +712,31 @@ with patch.object(t.helper, 'fetch_html', side_effect=AssertionError('Must not f
         with patch.object(checker, 'check_addresses', return_value={'Test 12': {'outage': True, 'details': '8–10'}}):
             with self.assertRaises(SystemExit):
                 checker.run_checks()
-        self.assertTrue(database.check_done(self.db(), str(self.tomorrow - datetime.timedelta(days=1))))
         self.mail.side_effect = None
         with patch.object(checker, 'check_addresses') as match, patch.object(helper, 'fetch_html') as fetch:
             retry = checker.run_checks()
         match.assert_not_called()
         fetch.assert_not_called()
-        self.assertTrue(retry['check_cached'])
+        self.assertTrue(retry['skipped'])
         self.assertEqual(retry['notified'], ['user@example.com'])
 
-    def test_no_announcement_and_no_outages_are_not_rechecked(self):
+    def test_checks_run_at_most_once_per_hour(self):
         self.setup_run()
         with patch.object(checker, 'find_water_page', return_value=None), \
              patch.object(checker, 'check_addresses', return_value={'Test 12': {'outage': False, 'details': ''}}):
-            first = checker.run_checks()
-        self.assertTrue(first['check_complete'])
+            self.assertFalse(checker.run_checks()['skipped'])
         with patch.object(checker, 'check_addresses') as match, \
              patch.object(checker, 'find_water_page') as water, patch.object(helper, 'fetch_html') as fetch:
             self.assertTrue(checker.run_checks()['skipped'])
         match.assert_not_called()
         water.assert_not_called()
         fetch.assert_not_called()
+        self.next_hour()
+        with patch.object(checker, 'find_water_page', return_value=None) as water, \
+             patch.object(checker, 'check_addresses', return_value={'Test 12': {'outage': False, 'details': ''}}):
+            self.assertFalse(checker.run_checks()['skipped'])
+        water.assert_called_once()
         self.mail.assert_not_called()
-
-    def test_successful_service_stays_cached_when_other_service_fails(self):
-        self.setup_run()
-        with patch.object(checker, 'find_water_page', side_effect=RuntimeError('Water unavailable')), \
-             patch.object(checker, 'check_addresses', return_value={'Test 12': {'outage': True, 'details': '8–10'}}):
-            self.assertFalse(checker.run_checks()['check_complete'])
-        with patch.object(helper, 'fetch_html') as fetch, \
-             patch.object(checker, 'check_addresses', return_value={'Test 12': {'outage': False, 'details': ''}}) as match:
-            second = checker.run_checks()
-        fetch.assert_not_called()
-        match.assert_called_once()
-        self.assertEqual(match.call_args.args[2], 'voda')
-        self.assertTrue(second['check_complete'])
-        self.mail.assert_called_once()
 
     def test_pending_email_is_cancelled_if_user_changes_address(self):
         self.setup_run()
@@ -753,16 +753,17 @@ with patch.object(t.helper, 'fetch_html', side_effect=AssertionError('Must not f
         self.mail.assert_not_called()
         match.assert_not_called()
 
-    def test_outbox_creation_and_service_completion_are_atomic(self):
+    def test_outbox_creation_is_atomic(self):
         self.user(authorized=1)
+        self.user(email='second@example.com', authorized=1)
         conn = self.db()
         conn.execute("""CREATE TRIGGER fail_outbox BEFORE INSERT ON notification_outbox
+                        WHEN NEW.email = 'user@example.com'
                         BEGIN SELECT RAISE(ABORT, 'test insertion failure'); END""")
         conn.commit()
         with self.assertRaises(sqlite3.IntegrityError):
-            database.save_service_check(conn, '2026-09-26', '2026-09-27', 'struja',
-                                        {'Test 12': {'outage': True, 'details': '8–10'}})
-        self.assertEqual(database.get_service_checks(conn, '2026-09-26'), {})
+            database.save_outages(conn, '2026-09-26', '2026-09-27', 'struja',
+                                  {'Test 12': {'outage': True, 'details': '8–10'}})
         self.assertEqual(conn.execute('SELECT COUNT(*) FROM notification_outbox').fetchone()[0], 0)
 
     def test_previous_day_does_not_block_new_day_or_retry_stale_mail(self):
@@ -771,6 +772,7 @@ with patch.object(t.helper, 'fetch_html', side_effect=AssertionError('Must not f
         with patch.object(checker, 'check_addresses', return_value={'Test 12': {'outage': True, 'details': '8–10'}}):
             checker.run_checks()
         self.mail.reset_mock(side_effect=True)
+        self.next_hour()
         next_day = self.tomorrow
         class NextDay(datetime.datetime):
             @classmethod
@@ -780,18 +782,9 @@ with patch.object(t.helper, 'fetch_html', side_effect=AssertionError('Must not f
              patch.object(helper, 'fetch_html', return_value=power_page(next_day + datetime.timedelta(days=1))), \
              patch.object(checker, 'check_addresses', return_value={'Test 12': {'outage': False, 'details': ''}}) as match:
             result = checker.run_checks()
-        self.assertFalse(result['check_cached'])
-        self.assertTrue(result['check_complete'])
+        self.assertFalse(result['skipped'])
         self.assertEqual(match.call_count, 2)
         self.mail.assert_not_called()
-
-    def test_legacy_completed_day_does_not_trigger_new_checks(self):
-        database.record_check(self.db(), str(self.tomorrow - datetime.timedelta(days=1)))
-        with patch.object(helper, 'fetch_html') as fetch, patch.object(checker, 'ask') as ask:
-            result = checker.run_checks()
-        self.assertTrue(result['skipped'])
-        fetch.assert_not_called()
-        ask.assert_not_called()
 
     def test_stale_power_page_is_error_and_not_sent(self):
         self.user(authorized=1)

@@ -461,17 +461,12 @@ def run_check():
         logger.exception(f"Check run failed: {error}")
         return f"Check run failed: {error}", 500
 
-    if result["skipped"]:
-        return f"Provera za {result['date']} je vec uspesno obavljena danas. Nema mejlova za ponovno slanje.\n", 200, \
-               {"Content-Type": "text/plain; charset=utf-8"}
-
     if result["errors"]:
         logger.error(f"Check run errors: {result['errors']}")
 
     return (
         f"Datum: {result['date']}\n"
-        f"Provera: {'sacuvana ranije' if result.get('check_cached') else 'obavljena u ovom pozivu'}\n"
-        f"Provera zavrsena: {'da' if result.get('check_complete') else 'ne'}\n"
+        f"Provera: {'preskocena (poslednja je bila pre manje od sat vremena)' if result['skipped'] else 'obavljena u ovom pozivu'}\n"
         f"Provereno korisnika: {result['checked']}\n"
         f"Obavesteno: {', '.join(result['notified']) or '-'}\n"
         f"Preostalih mejlova za slanje: {result.get('pending', 0)}\n"
