@@ -6,4 +6,4 @@ __pycache__
 .venv
 usersdb.db
 public-service-info.log*
-static/contact.png
+.idea

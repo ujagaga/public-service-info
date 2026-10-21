@@ -35,8 +35,6 @@ def init_database(connection):
     connection.execute("BEGIN IMMEDIATE")
     cursor = connection.cursor()
     if not table_exists(connection, "users"):
-        helper.generate_contact_image(
-            appsettings.ADMIN_EMAIL, os.path.join(script_dir, "static", "contact.png"))
         cursor.execute("""
             CREATE TABLE users (
                 email TEXT NOT NULL UNIQUE,

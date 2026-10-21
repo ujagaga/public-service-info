@@ -3,10 +3,6 @@ import hmac
 import logging
 import secrets
 import smtplib
-import os
-import subprocess
-import tempfile
-from pathlib import Path
 import time
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
@@ -93,19 +89,3 @@ def send_email(recipient, subject, body, html=None, images=()):
         server.sendmail(appsettings.SMTP_USER, recipient, msg.as_string())
     logger.info("Sending email done")
 
-
-def generate_contact_image(email: str, destination):
-    """Render configured contact text without embedding it as image metadata."""
-    destination = Path(destination)
-    with tempfile.NamedTemporaryFile(dir=destination.parent, suffix='.png', delete=False) as temporary:
-        temporary_path = Path(temporary.name)
-    try:
-        subprocess.run([
-            'convert', '-background', 'none', '-fill', '#596b62',
-            '-font', 'DejaVu-Sans', '-pointsize', '28',
-            'label:' + email, '-strip', 'PNG:' + str(temporary_path),
-        ], check=True, capture_output=True, timeout=30)
-        os.chmod(temporary_path, 0o644)
-        os.replace(temporary_path, destination)
-    finally:
-        temporary_path.unlink(missing_ok=True)

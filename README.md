@@ -269,17 +269,12 @@ tail -f public-service-info.log
 
 ## Footer contact image
 
-On first database initialization, the app renders `ADMIN_EMAIL` into
-`static/contact.png`. Later startups leave it unchanged. The PNG is generated
-locally and excluded from git; its metadata contains no email text.
-Install ImageMagick (`convert`) and the DejaVu Sans font before initializing the
-database (Debian/Ubuntu: `sudo apt install imagemagick fonts-dejavu-core`).
-The `static` directory must be writable during initialization. Image generation
-failure aborts initialization so the next startup can retry.
-
-Existing databases keep their current image. To regenerate it after changing
-`ADMIN_EMAIL`, without changing the database, run:
+The footer shows `ADMIN_EMAIL` as an image, `static/contact.png`, so the address
+does not appear as text in the HTML. The PNG is committed to git; the server
+does not generate it. After changing `ADMIN_EMAIL`, regenerate it locally with
+ImageMagick and the DejaVu Sans font, then commit it:
 
 ```sh
-python -c "import appsettings, helper; helper.generate_contact_image(appsettings.ADMIN_EMAIL, 'static/contact.png')"
+convert -background none -fill '#596b62' -font DejaVu-Sans -pointsize 28 \
+  label:you@example.com -strip PNG:static/contact.png
 ```
