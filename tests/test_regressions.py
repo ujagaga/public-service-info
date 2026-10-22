@@ -662,8 +662,8 @@ class RegressionTests(unittest.TestCase):
             first = self.client.get('/run_check', query_string=query)
             self.assertEqual(match.call_count, 2)
         self.assertEqual(first.status_code, 500)
-        self.assertIn('obavljena u ovom pozivu', first.get_data(as_text=True))
-        self.assertIn('Preostalih mejlova za slanje: 1', first.get_data(as_text=True))
+        self.assertFalse(first.get_json()['details']['skipped'])
+        self.assertEqual(first.get_json()['details']['pending'], 1)
         with patch.object(checker, 'check_addresses', side_effect=AssertionError('No repeated analysis')) as match, \
              patch.object(helper, 'fetch_html', side_effect=AssertionError('No repeated fetch')) as fetch, \
              patch.object(checker, 'find_water_page', side_effect=AssertionError('No repeated water lookup')) as water:
@@ -672,8 +672,8 @@ class RegressionTests(unittest.TestCase):
             fetch.assert_not_called()
             water.assert_not_called()
         self.assertEqual([r.status_code for r in (second, third, fourth)], [200, 200, 200])
-        self.assertIn('preskocena', second.get_data(as_text=True))
-        self.assertIn('Preostalih mejlova za slanje: 0', third.get_data(as_text=True))
+        self.assertTrue(second.get_json()['details']['skipped'])
+        self.assertEqual(third.get_json()['details']['pending'], 0)
         recipients = [call.kwargs['recipient'] for call in self.mail.call_args_list]
         self.assertEqual(recipients, ['other@example.com', 'user@example.com', 'user@example.com'])
         retries = [call.kwargs['body'] for call in self.mail.call_args_list if call.kwargs['recipient'] == 'user@example.com']
@@ -703,7 +703,7 @@ with patch.object(t.helper, 'fetch_html', side_effect=AssertionError('Must not f
         result = json.loads(completed.stdout)
         self.assertEqual(result['status'], 200, result)
         self.assertEqual(result['sent'], 1)
-        self.assertIn('preskocena', result['body'])
+        self.assertTrue(json.loads(result['body'])['details']['skipped'])
         self.assertEqual(len(database.get_pending_notifications(self.db(), str(self.tomorrow - datetime.timedelta(days=1)))), 0)
 
     def test_crash_before_email_keeps_check_and_outbox_for_next_url_call(self):

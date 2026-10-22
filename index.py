@@ -15,7 +15,8 @@ import sys
 import time
 from zoneinfo import ZoneInfo
 
-from flask import (Flask, g, render_template, request, flash, redirect, make_response, session, url_for as flask_url_for)
+from flask import (Flask, g, render_template, request, flash, redirect, make_response, session, jsonify,
+                   url_for as flask_url_for)
 from flask_wtf import CSRFProtect
 
 import appsettings
@@ -459,19 +460,14 @@ def run_check():
         result = checker.run_checks(request.host_url.rstrip('/') + safe_url_for('unsubscribe'))
     except Exception as error:
         logger.exception(f"Check run failed: {error}")
-        return f"Check run failed: {error}", 500
+        return jsonify(success=False, error=f"Check run failed: {error}", details={}), 500
 
     if result["errors"]:
         logger.error(f"Check run errors: {result['errors']}")
 
-    return (
-        f"Datum: {result['date']}\n"
-        f"Provera: {'preskocena (poslednja je bila pre manje od sat vremena)' if result['skipped'] else 'obavljena u ovom pozivu'}\n"
-        f"Provereno korisnika: {result['checked']}\n"
-        f"Obavesteno: {', '.join(result['notified']) or '-'}\n"
-        f"Preostalih mejlova za slanje: {result.get('pending', 0)}\n"
-        f"Greske: {'; '.join(result['errors']) or '-'}\n"
-    ), 500 if result["errors"] else 200, {"Content-Type": "text/plain; charset=utf-8"}
+    # Standard status shape read by the scheduler: success, error, details.
+    return jsonify(success=not result["errors"], error="; ".join(result["errors"]) or None,
+                   details=result), 500 if result["errors"] else 200
 
 if __name__ == "__main__":
     application.run(debug=False, host="0.0.0.0", port=5000)
