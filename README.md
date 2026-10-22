@@ -141,7 +141,14 @@ Trigger a check with:
 curl "https://<your-host>/run_check?token=<TRIGGER_TOKEN>"
 ```
 
-It returns a plain text report, and HTTP 500 if any part of the run failed.
+It returns JSON in the standard status shape the scheduler reads, and HTTP 500 if any
+part of the run failed:
+
+```json
+{"success": false, "error": "Provera (voda) nije uspela: ...",
+ "details": {"date": "23.10.2026", "checked": 12, "notified": [], "errors": ["..."], "skipped": false,
+             "check_cached": false, "check_complete": false, "pending": 0}}
+```
 
 
 ## CGI requests and evening retries

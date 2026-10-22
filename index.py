@@ -11,7 +11,7 @@ import sys
 import time
 
 from flask import (Flask, g, render_template, request, flash, redirect, make_response,
-                   session, url_for as flask_url_for)
+                   session, jsonify, url_for as flask_url_for)
 from flask_wtf import CSRFProtect
 
 import appsettings
@@ -335,28 +335,14 @@ def run_check():
         result = checker.run_checks()
     except Exception as error:
         logger.exception(f"Check run failed: {error}")
-        return f"Check run failed: {error}", 500
-
-    if result.get('skip_reason') == 'before_start_hour':
-        return (f"Provera nije pokrenuta. Pocetak provera je u {result['start_hour']:02d}:00 "
-                "(Europe/Belgrade).\n"), 200, {"Content-Type": "text/plain; charset=utf-8"}
-
-    if result["skipped"]:
-        return f"Provera za {result['date']} je vec uspesno obavljena danas. Nema mejlova za ponovno slanje.\n", 200, \
-               {"Content-Type": "text/plain; charset=utf-8"}
+        return jsonify(success=False, error=f"Check run failed: {error}", details={}), 500
 
     if result["errors"]:
         logger.error(f"Check run errors: {result['errors']}")
 
-    return (
-        f"Datum: {result['date']}\n"
-        f"Provera: {'sacuvana ranije' if result.get('check_cached') else 'obavljena u ovom pozivu'}\n"
-        f"Provera zavrsena: {'da' if result.get('check_complete') else 'ne'}\n"
-        f"Provereno korisnika: {result['checked']}\n"
-        f"Obavesteno: {', '.join(result['notified']) or '-'}\n"
-        f"Preostalih mejlova za slanje: {result.get('pending', 0)}\n"
-        f"Greske: {'; '.join(result['errors']) or '-'}\n"
-    ), 500 if result["errors"] else 200, {"Content-Type": "text/plain; charset=utf-8"}
+    # Standard status shape read by the scheduler: success, error, details.
+    return jsonify(success=not result["errors"], error="; ".join(result["errors"]) or None,
+                   details=result), 500 if result["errors"] else 200
 
 if __name__ == "__main__":
     application.run(debug=False, host="0.0.0.0", port=5000)
