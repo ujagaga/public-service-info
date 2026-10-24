@@ -8,6 +8,7 @@ import re
 import time
 from html.parser import HTMLParser
 from urllib.parse import urlencode, urljoin, urlsplit
+from xml.etree import ElementTree
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -119,9 +120,19 @@ class AnnouncementParser(HTMLParser):
 def extract_links(html: str) -> dict[str, str]:
     parser = AnnouncementParser()
     parser.feed(html)
+    return announcement_links(parser.links)
+
+
+def extract_feed_links(xml: str) -> dict[str, str]:
+    items = ElementTree.fromstring(xml).iter('item')
+    return announcement_links({item.findtext('link', '').strip(): item.findtext('title', '').strip()
+                               for item in items})
+
+
+def announcement_links(raw: dict[str, str]) -> dict[str, str]:
     origin = urlsplit(appsettings.WATER_CHECK_URL)
     links = {}
-    for href, label in parser.links.items():
+    for href, label in raw.items():
         url = urljoin(appsettings.WATER_CHECK_URL, href)
         parts = urlsplit(url)
         if (parts.scheme in ('http', 'https') and parts.netloc == origin.netloc
@@ -130,8 +141,20 @@ def extract_links(html: str) -> dict[str, str]:
     return links
 
 
+def water_links() -> dict[str, str]:
+    # The RSS feed answers in well under a second; the HTML listing takes ~9 s.
+    try:
+        links = extract_feed_links(helper.fetch_html(appsettings.WATER_CHECK_URL.rstrip('/') + '/feed/'))
+        if links:
+            return links
+        logger.warning("Water RSS feed has no announcement links, falling back to HTML listing")
+    except Exception:
+        logger.exception("Water RSS feed failed, falling back to HTML listing")
+    return extract_links(helper.fetch_html(appsettings.WATER_CHECK_URL))
+
+
 def find_water_page(date: datetime.date) -> str | None:
-    links = extract_links(helper.fetch_html(appsettings.WATER_CHECK_URL))
+    links = water_links()
     if not links:
         raise ValueError("Nijedan link objave nije pronadjen na stranici vodovoda")
     listing = "\n".join(f"{url} | {label}" for url, label in links.items())

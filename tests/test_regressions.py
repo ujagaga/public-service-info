@@ -360,16 +360,23 @@ class RegressionTests(unittest.TestCase):
 
     def test_water_selection_requires_exact_url_or_exact_no_result(self):
         url = 'https://www.vikns.rs/najava-radova-sr/notice/'
-        html = f"<a href='{url}'><strong>Radovi</strong></a>"
+        feed = f"<?xml version='1.0' encoding='UTF-8'?><rss><channel><item><title>Radovi</title><link>{url}</link></item></channel></rss>"
         for answer in ['https://www.vikns.rs', url[:-1], 'unknown', 'NEMA extra']:
-            with self.subTest(answer=answer), patch.object(helper, 'fetch_html', return_value=html) as fetch, patch.object(checker, 'ask', return_value=answer):
+            with self.subTest(answer=answer), patch.object(helper, 'fetch_html', return_value=feed) as fetch, patch.object(checker, 'ask', return_value=answer):
                 with self.assertRaises(ValueError):
                     checker.find_water_page(self.tomorrow)
-                fetch.assert_called_once()
-        with patch.object(helper, 'fetch_html', side_effect=[html, 'selected page']), patch.object(checker, 'ask', return_value=url):
+                fetch.assert_called_once_with('https://www.vikns.rs/category/najava-radova-sr/feed/')
+        with patch.object(helper, 'fetch_html', side_effect=[feed, 'selected page']), patch.object(checker, 'ask', return_value=url):
             self.assertEqual(checker.find_water_page(self.tomorrow), 'selected page')
-        with patch.object(helper, 'fetch_html', return_value=html), patch.object(checker, 'ask', return_value='NEMA'):
+        with patch.object(helper, 'fetch_html', return_value=feed), patch.object(checker, 'ask', return_value='NEMA'):
             self.assertIsNone(checker.find_water_page(self.tomorrow))
+
+    def test_water_links_fall_back_to_html_listing(self):
+        html = "<a href='https://www.vikns.rs/najava-radova-sr/notice/'>Radovi</a>"
+        for feed in [RuntimeError('feed down'), 'not xml', '<rss><channel></channel></rss>']:
+            with self.subTest(feed=feed), patch.object(helper, 'fetch_html', side_effect=[feed, html]) as fetch:
+                self.assertEqual(checker.water_links(), {'https://www.vikns.rs/najava-radova-sr/notice/': 'Radovi'})
+                self.assertEqual(fetch.call_args.args[0], 'https://www.vikns.rs/category/najava-radova-sr/')
         self.assertEqual(checker.extract_links("<a href='/najava-radova-sr/test/'>OK</a><a href='https://evil.example/najava-radova-sr/test/'>Bad</a>"),
                          {'https://www.vikns.rs/najava-radova-sr/test/': 'OK'})
 
