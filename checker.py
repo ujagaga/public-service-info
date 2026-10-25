@@ -181,7 +181,7 @@ def validate_power_date(html: str, date: datetime.date):
         raise ValueError("Datum najave za struju nije pronadjen")
     day, month, year = map(int, match.groups())
     if datetime.date(year, month, day) != date:
-        raise ValueError(f"Najava za struju nije za trazeni datum {date}")
+        raise ValueError(f"Najava za struju nije za trazeni datum {date} (na stranici: {year}-{month:02}-{day:02})")
 
 
 class TableParser(HTMLParser):
