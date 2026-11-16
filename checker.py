@@ -1,5 +1,6 @@
 import base64
 import datetime
+from concurrent.futures import ThreadPoolExecutor
 from html import escape
 import fcntl
 import json
@@ -292,6 +293,20 @@ def check_addresses(html: str, addresses: list[str], service: str, date: datetim
     return matched
 
 
+def analyze_service(service: str, addresses: list[str], date: datetime.date) -> tuple[dict, bool]:
+    """Fetch and analyze one service. Returns (matches, announced). No database access,
+    so the services can run in parallel threads."""
+    if service == 'struja':
+        html = helper.fetch_html(appsettings.POWER_CHECK_URL)
+        validate_power_date(html, date)
+        html = power_rows_for_city(html)
+    else:
+        html = find_water_page(date)
+    if html is None:
+        return {address: {'outage': False, 'details': ''} for address in addresses}, False
+    return check_addresses(html, addresses, service, date), True
+
+
 def run_checks(unsubscribe_url: str | None = None) -> dict:
     try:
         return _run_checks_locked(unsubscribe_url)
@@ -327,22 +342,18 @@ def _run_checks(today: datetime.date, unsubscribe_url: str | None = None) -> dic
         # Pending emails are retried on every trigger regardless.
         report['skipped'] = not database.claim_check(connection, int(time.time()))
         addresses = [] if report['skipped'] else database.get_check_addresses(connection)
-        for service in ('struja', 'voda') if addresses else ():
+        # Gemini calls take 10-15 s each; run services in parallel to stay under the
+        # trigger's HTTP timeout. Database writes stay on this thread.
+        with ThreadPoolExecutor() as pool:
+            futures = {service: pool.submit(analyze_service, service, addresses, tomorrow)
+                       for service in (('struja', 'voda') if addresses else ())}
+        for service, future in futures.items():
             try:
-                if service == 'struja':
-                    html = helper.fetch_html(appsettings.POWER_CHECK_URL)
-                    validate_power_date(html, tomorrow)
-                    html = power_rows_for_city(html)
-                else:
-                    html = find_water_page(tomorrow)
-                if html is None:
-                    matches = {address: {'outage': False, 'details': ''} for address in addresses}
-                else:
-                    matches = check_addresses(html, addresses, service, tomorrow)
+                matches, announced = future.result()
                 checked = database.save_outages(connection, check_date, str(tomorrow), service, matches)
                 report['checked'] = max(report['checked'], checked)
                 logger.info("Service check successful: service=%s target_date=%s addresses=%d%s",
-                            service, tomorrow, len(matches), " (no announcement)" if html is None else "")
+                            service, tomorrow, len(matches), "" if announced else " (no announcement)")
             except Exception as error:
                 logger.exception("Service check failed: service=%s target_date=%s", service, tomorrow)
                 report['errors'].append(f"Provera ({service}) nije uspela: {error}")

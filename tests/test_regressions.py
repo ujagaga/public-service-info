@@ -610,12 +610,16 @@ class RegressionTests(unittest.TestCase):
 
     def test_recipients_are_fetched_after_bulk_results(self):
         self.setup_run()
-        def check(html, addresses, service, date):
+        save_outages = database.save_outages
+        def save(connection, date, outage_date, service, matches):
+            # Analysis runs in worker threads; change users on this thread before saving.
             if service == 'struja':
                 database.delete_user(self.db(), 'user@example.com')
                 self.user(email='new-neighbor@example.com', authorized=1)
-            return {address: {'outage': True, 'details': '8–10'} for address in addresses}
-        with patch.object(checker, 'check_addresses', side_effect=check):
+            return save_outages(connection, date, outage_date, service, matches)
+        with patch.object(checker, 'check_addresses', side_effect=lambda html, addresses, service, date:
+                          {address: {'outage': True, 'details': '8–10'} for address in addresses}), \
+             patch.object(database, 'save_outages', side_effect=save):
             report = checker.run_checks()
         self.assertFalse(report['errors'])
         self.mail.assert_called_once()
@@ -623,11 +627,15 @@ class RegressionTests(unittest.TestCase):
 
     def test_address_changed_during_check_is_picked_up_next_hour(self):
         self.setup_run()
-        def check(html, addresses, service, date):
+        save_outages = database.save_outages
+        def save(connection, date, outage_date, service, matches):
+            # Analysis runs in worker threads; change the address on this thread before saving.
             database.set_subscription(self.db(), 'user@example.com', 'Test 12', [])
             database.set_subscription(self.db(), 'user@example.com', 'New 24', ['user@example.com'])
-            return {address: {'outage': True, 'details': '8–10'} for address in addresses}
-        with patch.object(checker, 'check_addresses', side_effect=check):
+            return save_outages(connection, date, outage_date, service, matches)
+        with patch.object(checker, 'check_addresses', side_effect=lambda html, addresses, service, date:
+                          {address: {'outage': True, 'details': '8–10'} for address in addresses}), \
+             patch.object(database, 'save_outages', side_effect=save):
             report = checker.run_checks()
         self.assertFalse(report['errors'])
         self.mail.assert_not_called()
