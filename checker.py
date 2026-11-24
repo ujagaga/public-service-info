@@ -141,14 +141,20 @@ def announcement_links(raw: dict[str, str]) -> dict[str, str]:
 
 def water_links() -> dict[str, str]:
     # The RSS feed answers in well under a second; the HTML listing takes ~9 s.
+    feed = ''
     try:
-        links = extract_feed_links(helper.fetch_html(appsettings.WATER_CHECK_URL.rstrip('/') + '/feed/'))
+        feed = helper.fetch_html(appsettings.WATER_CHECK_URL.rstrip('/') + '/feed/')
+        links = extract_feed_links(feed)
         if links:
             return links
-        logger.warning("Water RSS feed has no announcement links, falling back to HTML listing")
+        logger.warning("Water RSS feed has no announcement links, falling back to HTML listing: %r", feed[:2000])
     except Exception:
-        logger.exception("Water RSS feed failed, falling back to HTML listing")
-    return extract_links(helper.fetch_html(appsettings.WATER_CHECK_URL))
+        logger.exception("Water RSS feed failed, falling back to HTML listing: %r", feed[:2000])
+    html = helper.fetch_html(appsettings.WATER_CHECK_URL)
+    links = extract_links(html)
+    if not links:
+        logger.warning("Water HTML listing has no announcement links: %r", html[:2000])
+    return links
 
 
 def find_water_page(date: datetime.date) -> str | None:
